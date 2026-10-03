@@ -5,7 +5,10 @@ import type { FrontendToBackend, Settings, WarpSeen } from "../shared/protocol.j
 import { templateInfo } from "../rulebook/workspace.js";
 import { ENGINE_FORMAT, PART_CONTENTS, PART_LABELS, STUDIO_VERSION, WARP_PIN_SHORT } from "../warp.js";
 import { host, logError, send, toast } from "./host.js";
-import { discardDraft, editPart, exportRules, importDraft, installDraft, listCharacters, openStudio, startDraft } from "./session.js";
+import {
+  cancelJob, deepenDraft, discardDraft, editPart, exportRules, fixFinding, importDraft, installDraft, listCharacters, openStudio,
+  playtestDraft, reviewProposal, startDraft, unwaiveFinding, waiveFinding,
+} from "./session.js";
 import { getSettings, patchSettings } from "./settings.js";
 
 export const ABOUT = `Warp Studio ${STUDIO_VERSION} · ruleset format ${ENGINE_FORMAT} · engine ${WARP_PIN_SHORT}`;
@@ -46,6 +49,17 @@ export async function handle(raw: unknown, userId?: string): Promise<void> {
           case "export": await exportRules(characterId, msg.from === "installed" ? "installed" : "draft", userId); break;
           case "install": await installDraft(characterId, warpSeen(msg.warp), userId); break;
           case "discard": await discardDraft(characterId, userId); break;
+          case "playtest": await playtestDraft(characterId, userId); break;
+          case "fix": if (id(msg.findingId)) await fixFinding(characterId, msg.findingId, userId); break;
+          case "deepen": await deepenDraft(characterId, userId); break;
+          case "review": {
+            const a = msg.accept;
+            await reviewProposal(characterId, a === "all" || a === "none" ? a : Array.isArray(a) ? a.filter((x): x is string => typeof x === "string") : "none", userId);
+            break;
+          }
+          case "waive": if (id(msg.id)) await waiveFinding(characterId, msg.id, String(msg.reason ?? ""), userId); break;
+          case "unwaive": if (id(msg.id)) await unwaiveFinding(characterId, msg.id, userId); break;
+          case "cancel": cancelJob(characterId, userId); break;
         }
       }
     }

@@ -1,7 +1,25 @@
 // Messages and view models shared by Studio's backend and frontend. The frontend
 // gets ready-made views; it never runs the engine.
 
+import type { CheckView } from "../audit/report.js";
+import type { DiffLine } from "../rulebook/diff.js";
 import type { PreviewView } from "../rulebook/preview.js";
+import type { PlaytestReport } from "../sim/playtest.js";
+
+export type { CheckView, DiffLine, PlaytestReport };
+
+/** Gates as the review compares them (Warp's gate objects, trimmed). */
+export interface GateView { id: string; label: string; pass: boolean }
+
+/** A Fix or Deepen result waiting for review. Nothing is in the draft until it is accepted. */
+export interface ProposalView {
+  kind: "fix" | "deepen";
+  sections: { label: string; kept: boolean; reason: string | null; summary: string | null; diff: DiffLine[]; added: number; removed: number }[];
+  scores: { before: Record<string, number>; after: Record<string, number> };
+  gates: { before: GateView[]; after: GateView[] };
+  calls: number;
+  at: number;
+}
 
 export interface Settings {
   /** Empty = Lumiverse's active connection. */
@@ -64,6 +82,11 @@ export interface DraftView {
   /** Why Install is refused (errors), or null. The Warp version check is separate. */
   installBlock: string | null;
   preview: PreviewView | null;
+  /** Check: coverage per core system and findings (null while the draft doesn't load). */
+  check: CheckView | null;
+  /** The last Playtest of this draft; `stale` once the draft changed after it. */
+  playtest: { report: PlaytestReport; stale: boolean; at: number } | null;
+  proposal: ProposalView | null;
   updatedAt: number;
 }
 
@@ -72,6 +95,8 @@ export interface StudioView {
   character: CharacterView | null;
   draft: DraftView | null;
   busy: string | null;
+  /** The running job can be cancelled (Playtest, Fix, Deepen). */
+  cancellable: boolean;
   error: string | null;
   /** The last install from Studio in this session. */
   installed: { bookId: string; at: number } | null;
@@ -92,6 +117,13 @@ export type FrontendToBackend =
   | { type: "export"; characterId: string; from: "draft" | "installed" }
   | { type: "install"; characterId: string; warp: WarpSeen }
   | { type: "discard"; characterId: string }
+  | { type: "playtest"; characterId: string }
+  | { type: "fix"; characterId: string; findingId: string }
+  | { type: "deepen"; characterId: string }
+  | { type: "review"; characterId: string; accept: "all" | "none" | string[] }
+  | { type: "waive"; characterId: string; id: string; reason: string }
+  | { type: "unwaive"; characterId: string; id: string }
+  | { type: "cancel"; characterId: string }
   | { type: "settings"; patch: Partial<Settings> };
 
 export interface TemplateInfo { id: string; name: string; blurb: string }
@@ -105,4 +137,5 @@ export type BackendToFrontend =
   | { type: "chat"; chatId: string | null }
   | { type: "studio"; view: StudioView }
   | { type: "exported"; characterId: string; name: string; text: string }
+  | { type: "playtest_progress"; characterId: string; share: number }
   | { type: "toast"; level: "info" | "success" | "warning" | "error"; message: string };

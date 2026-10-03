@@ -49,6 +49,8 @@ export function fakeHost(o: {
   helper?: (system: string, user: string) => string;
   /** connections.list throws (no generation permission). */
   noGeneration?: boolean;
+  /** Each helper call takes this long (and stops early when its signal aborts). */
+  helperDelayMs?: number;
 } = {}): FakeHost {
   const h: FakeHost = {
     sent: [], toasts: [], quiet: [], storage: new Map(), writes: [], tamper: null, failUpdate: null,
@@ -106,9 +108,15 @@ export function fakeHost(o: {
     },
     generate: {
       quiet: async (req: { messages: { content: string }[]; connection_id?: string; parameters?: { temperature?: number }; signal?: AbortSignal }) => {
-        if (req.signal?.aborted) throw new Error("aborted");
+        if (req.signal?.aborted) throw req.signal.reason ?? new Error("aborted");
         const [system, user] = [req.messages[0]?.content ?? "", req.messages[1]?.content ?? ""];
         h.quiet.push({ system, user, connection: req.connection_id, temperature: req.parameters?.temperature });
+        if (o.helperDelayMs) {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, o.helperDelayMs);
+            req.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(req.signal!.reason ?? new Error("aborted")); }, { once: true });
+          });
+        }
         return { content: o.helper ? o.helper(system, user) : "" };
       },
     },
