@@ -47,8 +47,7 @@ export type DraftBase =
   | { kind: "installed"; bookId: string | null }
   | { kind: "backup"; bookId: string; name: string }
   | { kind: "template"; id: string; name: string }
-  | { kind: "import"; name: string | null }
-  | { kind: "blank" };
+  | { kind: "import"; name: string | null };
 
 export interface DraftView {
   base: DraftBase;
@@ -81,7 +80,7 @@ export interface StudioView {
 /** What the frontend saw of Warp (the warp-state-v1 bridge), sent with Install. */
 export interface WarpSeen { present: boolean; format: number | null }
 
-export type StartFrom = { installed: true } | { template: string } | { backup: string } | { blank: true };
+export type StartFrom = { installed: true } | { template: string } | { backup: string };
 
 export type FrontendToBackend =
   | { type: "hello" }
