@@ -1,0 +1,16 @@
+# A rulebook in the old format: parts Warp no longer runs are ignored.
+name: Old town
+stats:
+  hp: { kind: meter, start: 100 }
+perks:
+  tough: { name: Tough }
+weather:
+  enabled: true
+fronts:
+  storm: { name: The storm }
+encounters:
+  wolves: { name: The wolves }
+quests:
+  q: { name: Find the key }
+locations:
+  home: { name: Home }

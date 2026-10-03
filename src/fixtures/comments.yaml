@@ -1,0 +1,14 @@
+# A plain rulebook file: top-level keys, comments between them.
+name: Comment test
+description: Comments travel with the key below them.
+
+# The bars the player sees.
+stats:
+  energy: { kind: meter, start: 80, bands: { 0: Spent, 40: Tired, 70: Fresh } }
+
+# Who the story is about.
+relationships:
+  stats:
+    trust: { start: 10, narrator: 5, bands: { 0: Wary, 40: Open } }
+  people:
+    mira: { name: Mira }
