@@ -29,7 +29,7 @@ var package_default = {
     "js-yaml": "^4.1.0",
     "lumiverse-spindle-types": "0.6.36",
     typescript: "^5.9.0",
-    warp: "github:japolino/warp#be73bc17af6cd80a40a38cfe4a2a53747251789b"
+    warp: "github:japolino/warp#48aeea5ffd6322a0924191869f226389f74dc50b"
   }
 };
 
@@ -3425,9 +3425,18 @@ function run(n, env, opts) {
       const a = run(n.a, env, opts);
       return n.op === "-" ? -num(a) : !truthy(a);
     }
-    case "tern":
+    case "tern": {
+      if (opts.all) {
+        const c = run(n.c, env, opts), a = run(n.a, env, opts), b = run(n.b, env, opts);
+        return truthy(c) ? a : b;
+      }
       return truthy(run(n.c, env, opts)) ? run(n.a, env, opts) : run(n.b, env, opts);
+    }
     case "bin": {
+      if (opts.all && (n.op === "and" || n.op === "or")) {
+        const a = run(n.a, env, opts), b = run(n.b, env, opts);
+        return n.op === "and" ? truthy(a) ? b : a : truthy(a) ? a : b;
+      }
       if (n.op === "and") {
         const a = run(n.a, env, opts);
         return truthy(a) ? run(n.b, env, opts) : a;
@@ -3513,6 +3522,14 @@ function identifiers(src) {
   return [...out];
 }
 
+// node_modules/warp/src/engine/ids.ts
+var LATIN_MARKS = /(\p{Script=Latin})\p{M}+/gu;
+var NOT_WORD = /[^\p{L}\p{N}\p{M}\p{Extended_Pictographic}]+/gu;
+function idFrom(name) {
+  const s = String(name).trim().toLowerCase().normalize("NFD").replace(LATIN_MARKS, "$1").normalize("NFC");
+  return s.replace(NOT_WORD, "_").replace(/^_+|_+$/g, "") || "x";
+}
+
 // node_modules/warp/src/engine/format-version.ts
 var RULESET_FORMAT = 2;
 // node_modules/warp/src/engine/ruleset.ts
@@ -3523,7 +3540,7 @@ function titleCase(id) {
   return id.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 function slug(s) {
-  return String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "x";
+  return idFrom(s);
 }
 var DEFAULT_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function parseClockStart(v, weekdays) {
@@ -3690,8 +3707,8 @@ function normBands(raw, good, where, c) {
     return [];
   const list = [];
   const lines = (b) => ({
-    ...typeof b.say === "string" && b.say.trim() ? { say: b.say.trim() } : {},
-    ...typeof b.say_down === "string" && b.say_down.trim() ? { sayDown: b.say_down.trim() } : {},
+    ...typeof b.say === "string" ? { say: b.say.trim() } : {},
+    ...typeof b.say_down === "string" ? { sayDown: b.say_down.trim() } : {},
     ...typeof b.voice === "string" && b.voice.trim() ? { voice: b.voice.trim() } : {}
   });
   if (Array.isArray(raw)) {
@@ -3741,8 +3758,38 @@ var KIND_ALIASES = {
   currency: "money",
   hidden: "hidden"
 };
+var STAT_KEYS = new Set([
+  "kind",
+  "type",
+  "label",
+  "desc",
+  "description",
+  "min",
+  "max",
+  "start",
+  "value",
+  "good",
+  "show",
+  "narrator",
+  "narrator_when",
+  "narrator_words",
+  "narrator_keywords",
+  "narrator_actions",
+  "per_hour",
+  "perHour",
+  "group",
+  "bands",
+  "color",
+  "grades",
+  "growth",
+  "allocate"
+]);
+var PERSON_KEYS = new Set(["name", "age", "desc", "start", "appearance", "outfit", "schedule", "routine", "traits"]);
+var TRIGGER_KEYS = new Set(["id", "when", "if", "when_scene", "scene", "repeat", "every_turn", "do", "then", "effects", "hint"]);
 function normStat(id, raw, where, c, forRel = false) {
   const r = isObj(raw) ? raw : typeof raw === "number" ? { start: raw } : {};
+  if (isObj(raw))
+    warnUnknownKeys(raw, STAT_KEYS, where, c);
   if (!isObj(raw) && typeof raw !== "number" && raw !== null && raw !== undefined) {
     c.warn(where, "expected a stat definition — using defaults");
   }
@@ -3797,6 +3844,8 @@ function normStat(id, raw, where, c, forRel = false) {
     }
   }
   const start = c.num(startRaw, `${where} › start`, good === "low" ? min : k === "meter" ? max : min);
+  if (!maxExpr && startRaw !== undefined && (start < min || start > max))
+    c.warn(`${where} › start`, `${start} is outside ${min}–${max}, so it starts at ${Math.min(max, Math.max(min, start))}. Set min:/max: to fit (${k} stats default to ${min === 0 ? "0" : min}–${defaultMax === 1000000000000 ? "no limit" : defaultMax})`);
   const gate = narrator > 0 ? normGate(r, where, c) : undefined;
   const def = {
     id,
@@ -4764,6 +4813,7 @@ function normConflict(raw, c, known, stats, checkStats, style) {
     }
   const authored = isObj(r.kinds);
   const kinds = authored ? r.kinds : DEFAULT_KINDS;
+  let weak = false;
   for (const [id, kRaw] of Object.entries(kinds)) {
     const w = `Conflict › kinds › ${id}`;
     if (!isObj(kRaw)) {
@@ -4787,6 +4837,10 @@ function normConflict(raw, c, known, stats, checkStats, style) {
         continue;
       }
       kStats = checkStats.slice(0, 2);
+    }
+    if (!authored && raw === undefined && !weak && Object.keys(stats).length && (!kStats.length || kStats.some((s) => stats[s]?.kind !== "attribute" && stats[s]?.kind !== "skill"))) {
+      weak = true;
+      c.warn("Conflict", `there is no conflict: block, so the story may start a fight, chase or argument, and their moves lean on ${kStats.length ? kStats.map((s) => `"${s}"`).join(" and ") : "no stat (every move is luck)"}. Declare conflict: with kinds that fit this card, or conflict: false for no contests`);
     }
     const escRaw = typeof kRaw.escape === "string" ? kRaw.escape : undefined;
     if (escRaw && !stats[escRaw] && authored)
@@ -5027,6 +5081,8 @@ function normalizeRuleset(raw) {
   const people = {};
   for (const [id, p] of Object.entries(isObj(relRaw.people) ? relRaw.people : {})) {
     const r = isObj(p) ? p : typeof p === "string" ? { name: p } : {};
+    if (isObj(p))
+      warnUnknownKeys(p, PERSON_KEYS, `Relationships › people › ${id}`, c);
     const start = {};
     if (isObj(r.start))
       for (const [s, v] of Object.entries(r.start))
@@ -5164,6 +5220,7 @@ function normalizeRuleset(raw) {
       c.warn(w, "expected `when:` and `do:`");
       continue;
     }
+    warnUnknownKeys(t, TRIGGER_KEYS, w, c);
     const when = t.when ?? t.if;
     const whenExpr = when !== undefined ? c.expr(when, `${w} › when`) : undefined;
     const whenScene = typeof t.when_scene === "string" ? t.when_scene : typeof t.scene === "string" ? t.scene : undefined;
@@ -5420,7 +5477,7 @@ function startMinutes(r) {
   return typeof r.clock.start === "number" ? r.clock.start : r.clock.fallback;
 }
 function placeId(name) {
-  return String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "x";
+  return idFrom(name);
 }
 function statMax(r, def, s) {
   if (!def.maxExpr)
@@ -5486,6 +5543,24 @@ function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 function applyEvent(s, e, r) {
+  applyOne(s, e, r);
+  for (const id of formulaMaxStats(r)) {
+    const def = r.stats[id];
+    const v = s.stats[id];
+    if (v !== undefined && v > def.min && v > statMax(r, def, s))
+      s.stats[id] = Math.max(def.min, statMax(r, def, s));
+  }
+}
+var maxFormulaCache = new WeakMap;
+function formulaMaxStats(r) {
+  let ids = maxFormulaCache.get(r);
+  if (!ids) {
+    ids = r.statOrder.filter((id) => r.stats[id].maxExpr);
+    maxFormulaCache.set(r, ids);
+  }
+  return ids;
+}
+function applyOne(s, e, r) {
   const old = e;
   if (old.t === "dt_pref" && old.key === "__adult" && typeof old.who === "string") {
     s.adults = { ...s.adults, [old.who]: Number(old.v) > 0 };
@@ -5776,7 +5851,7 @@ function makeEnv(r, s, extra = {}) {
         case "rel":
           return s.rel[a0]?.[String(args[1] ?? "")] ?? r.relStats[String(args[1] ?? "")]?.start ?? 0;
         case "met":
-          return a0 in s.people;
+          return a0 in s.people && (!r.people[a0] || !!s.scene[a0] || (s.memories?.[a0]?.length ?? 0) > 0);
         case "between": {
           const v = Number(args[0]);
           const lo = Number(args[1]);
@@ -6019,7 +6094,7 @@ function statAdd(r, s, stat) {
     return 0;
   const max = statMax(r, def, s);
   const v = effectiveStat(r, s, stat, makeEnv(r, s));
-  const pos = max > def.min ? Math.max(0, Math.min(1, (v - def.min) / (max - def.min))) : 0;
+  const pos = max > def.min ? (v - def.min) / (max - def.min) : 0;
   return Math.round(pos * r.checks.bonus);
 }
 function improvAction(r, s, actionId) {
@@ -6143,6 +6218,7 @@ function crossing(def, before, after, max, beforeMax) {
     return null;
   return { from, to, dir: (from?.at ?? -Infinity) < to.at ? "up" : "down" };
 }
+var sentence = (t) => /[.!?。！？…"')]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`;
 function bandCrossings(r, before, after) {
   const out = [];
   for (const who of Object.keys(after.people)) {
@@ -6159,7 +6235,7 @@ function bandCrossings(r, before, after) {
         continue;
       const own = c.dir === "up" ? c.to.say : c.to.sayDown;
       const moved = Math.abs(a - b);
-      out.push({ who, stat: id, ...c, moved, share: moved / Math.max(0.000000001, def.max - def.min), authored: !!own, line: fill(own ?? `${name}: ${def.label} — ${c.to.text}.`, name) });
+      out.push({ who, stat: id, ...c, moved, share: moved / Math.max(0.000000001, def.max - def.min), authored: !!own, line: fill(own ?? `${name}: ${def.label} — ${sentence(c.to.text)}`, name) });
     }
   }
   for (const id of r.statOrder) {
@@ -6172,7 +6248,7 @@ function bandCrossings(r, before, after) {
       continue;
     const own = c.dir === "up" ? c.to.say : c.to.sayDown;
     const moved = Math.abs(a - b);
-    out.push({ who: null, stat: id, ...c, moved, share: moved / Math.max(0.000000001, statMax(r, def, after) - def.min), authored: !!own, line: own ?? c.to.text });
+    out.push({ who: null, stat: id, ...c, moved, share: moved / Math.max(0.000000001, statMax(r, def, after) - def.min), authored: !!own, line: own ?? `${def.label} — ${sentence(c.to.text)}` });
   }
   return out;
 }
@@ -6180,6 +6256,8 @@ var better = (a, b) => Number(b.authored) - Number(a.authored) || b.share - a.sh
 function crossingLines(crossings, max = 3) {
   const best = new Map;
   for (const c of crossings) {
+    if (!c.line)
+      continue;
     const key = c.who ?? `you:${c.stat}`;
     const cur = best.get(key);
     if (!cur || better(c, cur) < 0)
@@ -6351,6 +6429,20 @@ function endContest(t, outcome, src) {
   t.push({ t: "contest_end", outcome, src });
   return hint;
 }
+function effectSwing(t, d, src) {
+  const c = t.s.contest;
+  if (!c || !d)
+    return;
+  const next = nextMomentum(t.r, c.momentum, d, c.round);
+  if (next !== c.momentum)
+    t.push({ t: "swing", d: next - c.momentum, src });
+  if (Math.abs(next) < 100)
+    return;
+  const outcome = next >= 100 ? "won" : "lost";
+  const kind = kindOf(t.r, c.kind);
+  const hint = endContest(t, outcome, "action");
+  t.announce(`This ends the ${kind.label.toLowerCase()}: ${fillOpp(ENDING[outcome], c.opponent)}.${hint ? ` ${hint}` : ""}`);
+}
 function beatsBlock(t, o) {
   const lines = [`Contest: ${o.kind.label.toLowerCase()} with ${o.opponent} — round ${o.n} of at most ${o.max}.`];
   if (o.check)
@@ -6490,9 +6582,42 @@ function simulateContest(r, kind, add, threat, runs = 2000, seed = "sim") {
   return { runs, won: won / runs, lost: lost / runs, brokenOff: broken / runs, meanRounds: rounds / runs, within: within / runs, odds: d20Odds(add, dc, r.checks.partial).success };
 }
 
+// node_modules/warp/src/engine/mention.ts
+var CJK = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+var PARTICLE = "(?:이|가|을|를|은|는|의|에|에서|에게|에게서|한테|께|와|과|랑|이랑|도|만|로|으로|까지|부터|처럼|보다|조차|마저|이나|나|야|아|이여|여)";
+var longEnough = (w) => w.length >= 3 || w.length >= 2 && CJK.test(w);
+var esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function hasWord(t, w) {
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(w))
+    return t.includes(w);
+  const tail = /\p{Script=Hangul}$/u.test(w) ? `${PARTICLE}{0,2}` : "(s|es)?";
+  return new RegExp(`(^|[^\\p{L}])${esc(w)}${tail}([^\\p{L}]|$)`, "u").test(t);
+}
+var STOP = new Set(["the", "and", "with", "for", "of", "a", "an", "to", "in", "on", "at", "from", "into", "across", "your", "my", "his", "her", "their"]);
+var sig = (name) => name.toLowerCase().split(/[^\p{L}\p{N}']+/u).filter((w) => longEnough(w) && !STOP.has(w));
+function namesIt(text, name, others = []) {
+  const t = text.toLowerCase();
+  const n = name.toLowerCase().trim();
+  if (!n)
+    return false;
+  if (t.includes(n))
+    return true;
+  const words = sig(n);
+  if (!words.length)
+    return false;
+  const hits = words.filter((w) => hasWord(t, w)).length;
+  if (words.length === 1)
+    return hits === 1;
+  const head = words[words.length - 1];
+  const shared = others.some((o) => o.toLowerCase() !== n && sig(o).slice(-1)[0] === head);
+  if (hasWord(t, head) && (!shared || hits >= 2))
+    return true;
+  return hits >= Math.max(2, words.length - 1);
+}
+
 // node_modules/warp/src/engine/goals.ts
 var STORY_GOAL = "story_";
-var norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+var norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}\p{M}]+/gu, " ").trim();
 function close(t, id, st, src) {
   const g = t.s.goals?.[id];
   if (!g || g.st !== "open")
@@ -6571,7 +6696,7 @@ function goalInPlay(r, s, id, g, here, focus) {
     return true;
   if (s.turn - (g.turn ?? -99) <= 3)
     return true;
-  const words = norm(g.text).split(" ").filter((w) => w.length >= 4);
+  const words = norm(g.text).split(" ").filter((w) => w.length >= 4 || w.length >= 2 && CJK.test(w));
   const f = norm(focus);
   if (words.length && words.filter((w) => f.includes(w)).length >= Math.min(2, words.length))
     return true;
@@ -6617,14 +6742,14 @@ class Working {
     applyEvent(this.s, e, this.r);
     this.events.push(e);
   }
-  env(extra = {}) {
+  env(extra = {}, rng = this.rng) {
     const base = makeEnv(this.r, this.s, extra);
     return {
       lookup: base.lookup,
       call: (name, args) => {
         if (name === "roll") {
           try {
-            return rollDice(String(args[0] ?? "d6"), this.rng).total;
+            return rollDice(String(args[0] ?? "d6"), rng).total;
           } catch {
             return 0;
           }
@@ -6940,9 +7065,7 @@ function effectToEvents(w, e, src, extra) {
       w.push({ t: "secret", id, stage: cur + 1, src });
   }
   if (e.swing !== undefined && w.s.contest) {
-    const v = evalNumber(e.swing, w.env(extra), 0);
-    if (v !== 0)
-      w.push({ t: "swing", d: v, src });
+    effectSwing(builderOf(w), evalNumber(e.swing, w.env(extra), 0), src);
   }
   if (e.contest && !w.s.contest)
     startContest(builderOf(w), { kind: e.contest.kind, opponent: fillTarget(w, e.contest.with, extra), threat: e.contest.threat }, src === "narrator" ? "narrator" : "trigger");
@@ -7014,40 +7137,49 @@ function advanceTime(w, minutes, src) {
 }
 function runTriggers(w, includeRepeat) {
   const fired = new Set;
+  const said = [];
+  const turn0 = w.s.turn;
+  const holds = (t) => (t.when === undefined || evalBool(t.when, w.env({}, seededRng(`${w.seed}:${turn0}:when:${t.id}`)), false)) && (!t.whenScene || w.scene[t.id] === true);
+  const skip = (t) => t.whenScene && !(t.id in w.scene) || t.repeat && !includeRepeat;
   const limit = Math.max(5, Math.min(256, w.r.triggers.length * 2 + 1));
   for (let pass = 0;pass < limit; pass++) {
     let changed = false;
     for (const t of w.r.triggers) {
-      if (t.whenScene && !(t.id in w.scene))
+      if (skip(t))
         continue;
-      const now = (t.when === undefined || evalBool(t.when, w.env(), false)) && (!t.whenScene || w.scene[t.id] === true);
+      const now = holds(t);
       const prev = w.s.triggers[t.id] ?? false;
       const why = `Rule "${t.id.replace(/_/g, " ")}"${t.when ? ` (${t.when})` : ""}${t.whenScene ? ` — judged: ${t.whenScene}` : ""}`;
-      if (now && !prev) {
+      if (t.repeat && now && !fired.has(t.id)) {
+        if (!prev)
+          w.push({ t: "trig", id: t.id, v: true, src: "trigger" });
+        const from = w.hints.length;
+        because(w, prev ? `${why}, every turn while true` : why, () => effectToEvents(w, t.effects, "trigger", {}));
+        if (w.hints.length > from)
+          said.push({ t, from, to: w.hints.length });
+        fired.add(t.id);
+        changed = true;
+      } else if (!t.repeat && now && !prev) {
         w.push({ t: "trig", id: t.id, v: true, src: "trigger" });
         because(w, why, () => effectToEvents(w, t.effects, "trigger", {}));
         fired.add(t.id);
         changed = true;
-      } else if (now && t.repeat && includeRepeat && !fired.has(t.id)) {
-        because(w, `${why}, every turn while true`, () => effectToEvents(w, t.effects, "trigger", {}));
-        fired.add(t.id);
-        changed = true;
-      } else if (!now && prev) {
-        w.push({ t: "trig", id: t.id, v: false, src: "trigger" });
+        if (!holds(t))
+          w.push({ t: "trig", id: t.id, v: false, src: "trigger" });
+      } else if (now !== prev) {
+        w.push({ t: "trig", id: t.id, v: now, src: "trigger" });
         changed = true;
       }
     }
     if (!changed)
       break;
-    if (pass === limit - 1 && w.r.triggers.some((t) => {
-      if (t.whenScene && !(t.id in w.scene))
-        return false;
-      const now = (t.when === undefined || evalBool(t.when, w.env(), false)) && (!t.whenScene || w.scene[t.id] === true);
-      return now !== (w.s.triggers[t.id] ?? false);
-    })) {
+    if (pass === limit - 1 && w.r.triggers.some((t) => !skip(t) && holds(t) !== (w.s.triggers[t.id] ?? false))) {
       announce(w, "Rule processing reached its safety limit. Some rules still disagree with the state; check for a cycle in the ruleset.");
     }
   }
+  for (const x of said.reverse())
+    if (!holds(x.t))
+      w.hints.splice(x.from, x.to - x.from);
   openSecrets(w);
   goalLife(builderOf(w));
 }
@@ -7665,32 +7797,119 @@ function suggest(name, pool) {
   }
   return best && bestD <= Math.max(2, Math.floor(name.length / 3)) ? ` — did you mean "${best}"?` : "";
 }
+function allEffects(r) {
+  const out = [];
+  const add = (e) => {
+    if (!e)
+      return;
+    out.push(e);
+    for (const d of e.decide)
+      for (const o of d.options)
+        add(o.effect);
+  };
+  const action = (a) => {
+    add(a.cost);
+    add(a.effects);
+    for (const e of Object.values(a.outcomes))
+      add(e);
+  };
+  for (const a of Object.values(r.actions))
+    action(a);
+  for (const it of Object.values(r.items))
+    if (it.use)
+      action(it.use);
+  for (const a of Object.values(r.liveChoices.tags))
+    action(a);
+  for (const t of r.triggers)
+    add(t.effects);
+  for (const k of Object.values(r.conflict.kinds)) {
+    for (const e of Object.values(k.cost))
+      add(e);
+    add(k.won);
+    add(k.lost);
+    add(k.escaped);
+  }
+  for (const g of Object.values(r.goals.list))
+    add(g.reward);
+  for (const e of Object.values(r.checks.outcomes ?? {}))
+    add(e);
+  return out;
+}
 function lintRuleset(r) {
   const issues = [];
   const s = initialState(r);
   const names = [...r.statOrder, ...Object.keys(r.flags), ...BUILTIN_NAMES];
   const people = Object.keys(r.people);
   const warn = (where, message) => issues.push({ level: "warning", where, message });
+  const knownFlags = new Set([...Object.keys(r.flags), ...allEffects(r).flatMap((e) => Object.keys(e.flags))]);
   const check = (src, where, extra = {}) => {
     if (src === undefined || typeof src === "number")
-      return;
+      return false;
     if (difficultyOf(src))
-      return;
+      return false;
     const base = makeEnv(r, s, extra);
     const badKind = new Set;
-    const env = { lookup: base.lookup, call: (n, a) => {
-      if (n === "in_contest" && a.length && !r.conflict.kinds[String(a[0])])
-        badKind.add(String(a[0]));
-      if (n === "goal" && a.length && !r.goals.list[String(a[0])] && !String(a[0]).startsWith("story_"))
-        badGoal.add(String(a[0]));
-      return n === "roll" ? 1 : base.call?.(n, a);
-    } };
+    const named = [];
+    const name = (what, id, ok, pool, open = false) => {
+      if (ok)
+        return;
+      const near = suggest(id, pool);
+      const kind = /^(flag|flags)\b/.test(what) ? "a flag (declared, or set by an effect)" : /^cond/.test(what) ? "a condition" : /^(has|count|items)\b/.test(what) ? "a declared item" : /^rel\(…/.test(what) || what.includes(".") ? "a relationship stat" : "a declared person";
+      if (!open || near)
+        named.push(`${what}: "${id}" isn't ${kind}${near}`);
+    };
+    const personOk = (id) => !!r.people[id] || id === "target" || id === "opponent" || typeof extra.target === "string" && id === extra.target;
+    const env = {
+      lookup: (path) => {
+        const [h, ...rest] = path;
+        if (rest.length === 1 && !r.stats[h] && !r.flags[h]) {
+          const k = rest[0];
+          if ((h === "target" || r.people[h]) && !r.relStats[k])
+            name(`${h}.${k}`, k, false, r.relStatOrder);
+          else if (h === "flags")
+            name(`flags.${k}`, k, knownFlags.has(k), [...knownFlags]);
+          else if (h === "items")
+            name(`items.${k}`, k, !!r.items[k], Object.keys(r.items), r.itemsOpen);
+        }
+        return base.lookup(path);
+      },
+      call: (n, a) => {
+        const a0 = String(a[0] ?? "");
+        if (n === "in_contest" && a.length && !r.conflict.kinds[a0])
+          badKind.add(a0);
+        if (n === "goal" && a.length && !r.goals.list[a0] && !a0.startsWith("story_"))
+          badGoal.add(a0);
+        if (n === "flag")
+          name(`flag('${a0}')`, a0, knownFlags.has(a0), [...knownFlags]);
+        if (n === "cond")
+          name(`cond('${a0}')`, a0, !!r.conditions[a0], Object.keys(r.conditions));
+        if ((n === "has" || n === "count") && a.length)
+          name(`${n}('${a0}')`, a0, !!r.items[a0], Object.keys(r.items), r.itemsOpen);
+        if ((n === "met" || n === "present") && a.length)
+          name(`${n}('${a0}')`, a0, personOk(a0), people, r.peopleOpen);
+        if (n === "rel" && a.length >= 2) {
+          name(`rel('${a0}', …)`, a0, personOk(a0), people, r.peopleOpen);
+          name(`rel(…, '${String(a[1])}')`, String(a[1]), !!r.relStats[String(a[1])], r.relStatOrder);
+        }
+        if (n === "roll") {
+          rolled = true;
+          try {
+            rollDice(a0 || "d6", seededRng("lint"));
+          } catch (e) {
+            named.push(`roll('${a0}'): ${e instanceof Error ? e.message : "not dice"}, so it always gives 0`);
+          }
+          return 1;
+        }
+        return base.call?.(n, a);
+      }
+    };
+    let rolled = false;
     const badGoal = new Set;
     const unknown = new Set;
     try {
-      evaluate(src, env, { unknown });
+      evaluate(src, env, { unknown, all: true });
     } catch {
-      return;
+      return false;
     }
     for (const m of String(src).matchAll(/\b(eff|gear)\(\s*['"]([^'"]+)['"]/g)) {
       const [, fn, id] = m;
@@ -7706,6 +7925,9 @@ function lintRuleset(r) {
       warn(where, `in_contest('${id}'): "${id}" isn't a contest kind${suggest(id, Object.keys(r.conflict.kinds))}`);
     for (const id of badGoal)
       warn(where, `goal('${id}'): "${id}" isn't a goal in goals.list${suggest(id, Object.keys(r.goals.list))}`);
+    for (const m of new Set(named))
+      warn(where, `${m}, so it reads as 0 / false`);
+    return rolled;
   };
   const checkEffect = (e, where, extra = {}) => {
     for (const [id, v] of Object.entries(e.stats)) {
@@ -7713,10 +7935,39 @@ function lintRuleset(r) {
         warn(where, `changes "${id}", which isn't a stat${suggest(id, r.statOrder)}`);
       check(v, `${where} › ${id}`, extra);
     }
+    for (const id of Object.keys(e.set)) {
+      if (id in e.stats)
+        warn(`${where} › ${id}`, `is changed and set: in one block; changes run first, so set: wins. Use two rules to sequence them`);
+      for (const [k, v] of Object.entries(e.stats))
+        if (k !== id && identifiers(String(v)).includes(id))
+          warn(`${where} › ${k}`, `reads ${id}, which this block also sets; changes run before set:, so it reads the old ${id}. Use two rules to sequence them`);
+    }
     for (const [id, v] of Object.entries(e.set)) {
       if (!r.stats[id])
         warn(where, `sets "${id}", which isn't a stat${suggest(id, r.statOrder)}`);
       check(v, `${where} › set › ${id}`, extra);
+      const def = r.stats[id];
+      const stamp = identifiers(String(v)).find((n) => n === "turn" || n === "minutes");
+      const room = stamp === "minutes" ? 1e7 : 1e4;
+      if (def && stamp && !def.maxExpr && def.max < room)
+        warn(`${where} › set › ${id}`, `stores ${stamp}, but ${id} stops at ${def.max} (max), so it sticks there after ${stamp} ${def.max}. Give it max: ${room === 1e4 ? 1e5 : 1e8}`);
+    }
+    for (const [k, v] of Object.entries(e.flags)) {
+      if (!r.flags[k]) {
+        const near = suggest(k, Object.keys(r.flags));
+        if (near)
+          warn(`${where} › flags › ${k}`, `"${k}" isn't declared under flags:${near}`);
+      }
+      if (typeof v === "string" && /[<>?(']|==|!=/.test(v)) {
+        const unknown = new Set;
+        try {
+          evaluate(v, makeEnv(r, s, extra), { unknown, all: true });
+        } catch {
+          continue;
+        }
+        for (const u of unknown)
+          warn(`${where} › flags › ${k}`, `"${u}" isn't a stat, flag or clock value${suggest(u, [...names, ...Object.keys(extra)])}, so the flag is set to the formula's own text`);
+      }
     }
     for (const [who, m] of Object.entries(e.rel))
       for (const [stat, v] of Object.entries(m)) {
@@ -7776,6 +8027,14 @@ function lintRuleset(r) {
     if (a.check) {
       check(a.check.target, `${w} › check`, extra);
       check(a.check.add, `${w} › check › add`, extra);
+      if (typeof a.check.add === "string" && !/[*/]/.test(a.check.add))
+        for (const id of identifiers(a.check.add)) {
+          const d = r.stats[id];
+          const range = d ? d.maxExpr ? 0 : d.max - d.min : 0;
+          if (d && (d.kind === "skill" || d.kind === "attribute") && range > 2 * Math.max(10, r.checks.bonus)) {
+            warn(`${w} › check › add`, `adds ${id} (${d.min}–${d.max}) as it is, up to +${d.max} on a d20. Scale it like typed attempts do: add: "${id} * ${r.checks.bonus} / ${range}"`);
+          }
+        }
     }
     checkEffect(a.cost, `${w} › cost`, extra);
     checkCost(a, w, extra);
@@ -7822,8 +8081,20 @@ function lintRuleset(r) {
     if (r.stats[id].perHourExpr && !/%\s*$/.test(r.stats[id].perHourExpr))
       check(r.stats[id].perHourExpr, `Stats › ${id} › per_hour`);
   for (const t of r.triggers) {
-    check(t.when, `Triggers › ${t.id} › when`);
+    if (check(t.when, `Triggers › ${t.id} › when`))
+      warn(`Triggers › ${t.id} › when`, `roll() in when: rolls again before and after each reply, so the odds come out higher than written. Roll in a repeat rule and stamp the turn: do: { set: { rnd: "roll('1d100')", rnd_turn: "turn" } }, then when: "rnd_turn == turn and rnd <= 30"`);
     checkEffect(t.effects, `Triggers › ${t.id}`);
+  }
+  for (const id of [...r.statOrder, ...Object.keys(r.flags)])
+    if (BUILTIN_NAMES.includes(id))
+      warn(r.stats[id] ? `Stats › ${id}` : `Flags › ${id}`, `"${id}" is also a built-in formula name; in every formula it now reads this ${r.stats[id] ? "stat" : "flag"}, not the built-in ${id}. Rename it`);
+  for (const f of Object.values(r.flags))
+    if (f.narrator && typeof f.start !== "boolean")
+      warn(`Flags › ${f.id} › narrator`, `the story can only set true/false flags; "${f.id}" starts as ${JSON.stringify(f.start)}, so narrator: true does nothing. Use true/false flags (one per state) or a stat`);
+  for (const id of r.statOrder) {
+    const d = r.stats[id];
+    if (d.kind === "meter" && d.show !== "hidden" && !r.hud.bars.includes(id))
+      warn("HUD › bars", `meter "${id}" isn't in hud.bars, so the player never sees it on the panel. Add it, or make it kind: hidden`);
   }
   for (const id of r.hud.bars)
     if (!r.stats[id])
@@ -7919,7 +8190,8 @@ function partForIssue(where) {
   return PART_OF_KEY[head.replace(/\s+/g, "_")] ?? "core";
 }
 var REFERENCE = `WARP RULESET FORMAT 2 (YAML). One file, or one lorebook entry per part ("warp-ruleset · core", "· stats", …).
-Ids are snake_case. Numbers may be formulas in quotes ("10 + body"). Quote any formula that contains a comma. {{user}} is the player.
+Ids are snake_case. Numbers may be formulas in quotes ("10 + body"), except time:, lasts:, uses: and clock: (a number, or "30m", "2h", "1d").
+Quote any formula that contains a comma. {{user}} is the player.
 
 --- # core
 name: Harbour Nights                  # shown on the panel; description: one line about it
@@ -7933,7 +8205,7 @@ clock:
   narrator_max: 480                   # the most minutes the story may skip in one reply
   # weekdays: [Mon, Tue, …]; enabled: false turns the clock off
 start: { place: greeting, items: { phone: 1 }, money: 50, stats: { mood: 70 } }   # place: greeting or words ("The Rusty Anchor"); later places come from the story
-hud: { currency: "$", bars: [health, energy, mood] }   # currency: "$" (before), "{n}d" / "£{n}" (template) or { symbol: d, after: true }; bars: the meters on the panel
+hud: { currency: "$", bars: [health, energy, mood, stress] }   # currency: "$" (before), "{n}d" / "£{n}" (template) or { symbol: d, after: true }; bars: the meters on the panel (default: every meter; a meter left out is shown nowhere)
 narration: { notes: "Guidance for the narrator, in a line or two.", numbers: false }   # numbers: true shows numbers next to band words
 
 --- # stats
@@ -7946,6 +8218,7 @@ stats:                                # kinds: meter (a bar) | attribute | skill
     start: 60                         # a number, full, "50%" of the max, or a formula
     bands:                            # short form "25: Low." or the long form:
       25: { text: Low., say_down: "Your spirits sink." }   # say: a story line when the value enters this band from below; say_down: from above
+      # no say: = the line is "Mood — Low."; say: "" = no line (for label-like bands)
       75: { text: In good spirits., say: "Things are looking up." }
   money: { kind: money, narrator: 100 }
   body: { kind: attribute, max: 10, start: 3, desc: "Strength, speed, endurance." }
@@ -7953,6 +8226,7 @@ stats:                                # kinds: meter (a bar) | attribute | skill
   charm: { kind: attribute, max: 10, start: 3 }
   cooking: { kind: skill, max: 100, start: 5, grades: [F, D, C, B, A, S], group: Skills }   # group: the panel heading
   # good: high | low | none (colours); min/max (max may be a formula, "20 + body * 5"); label:, desc:, color:
+  # min/max default to 0–100 (skill 0–1000, money no limit), hidden stats too: a turn stamp needs max: 100000; a start outside is clamped
   # narrator: the most the story may move it per reply (0 = only the rules move it); gates on what the story may change:
   #   narrator_when: "not in_contest", narrator_words: [panic] (the exchange must mention one), narrator_actions: [fight] (action ids or tags)
   # show: text | number | both | hidden; bands: { 0%: Down., 40%: Wounded. } compare against the current max
@@ -7962,7 +8236,7 @@ checks:                               # adventure only: the one check style, d20
   dc: { easy: 8, fair: 12, hard: 16, extreme: 20 }   # difficulty words → d20 target (normal = fair)
   partial: 3                          # missing by 3 or less is a partial success (it works, at a cost)
   typed: true                         # risky, contested things the player types are rolled (never quoted dialogue)
-  stats: [body, mind, charm]          # what a typed attempt may lean on (default: every attribute and skill)
+  stats: [body, mind, charm]          # what a typed attempt may lean on (default: every attribute and skill, except ids like level, xp, exp, points, skill_points)
   bonus: 10                           # what a maxed stat adds (body 3/10 adds +3)
   time: 10                            # minutes a typed attempt takes (default minutes_per_action)
   directions: { fail: "It doesn't work, and the situation changes." }   # the narrator's direction per tier (defaults exist: fail forward)
@@ -8004,7 +8278,9 @@ inventory: { open: true }             # open: false = the story can't hand out i
 conditions:
   exhausted: { label: Exhausted, tone: bad, desc: "-2 to every check.", bonus: { body: -2, mind: -2 }, lasts: 8h }   # tone: good | warn | bad | neutral; lasts: absent = until removed; narrator: true lets the story add or remove it
 flags:
-  met_boss: { start: false, narrator: true }   # narrator: true = the story may set it
+  met_boss: { start: false, narrator: true }   # narrator: true = the story may set it (true/false flags only)
+  sister_found: false                 # a flag only the rules set (flags: { sister_found: true } in an effect)
+  saw_photo: { start: false, narrator: true }
 
 --- # actions
 actions:                              # the small authored moves, shown in one "More" row and in a person's row
@@ -8059,10 +8335,18 @@ live_choices:                         # 3 choices written for each reply; each c
 triggers:
   exhausted: { when: "energy <= 0", do: { add_condition: [exhausted], hint: "{{user}} is running on empty." } }   # fires once when it becomes true
   drain: { when: "stress >= 80", repeat: true, do: { energy: -2 } }   # every turn while true
-  danger: { when_scene: "{{user}} is in immediate danger", do: { stress: +5 } }   # plain words, judged after the reply; fires on the next turn
+  danger: { when_scene: "{{user}} is in immediate danger", do: { stress: +5 } }   # plain words, judged after the reply (only while its when:, if any, holds); fires on the next turn
+  # WHEN RULES RUN: in declaration order, in passes until nothing changes, in every batch of changes: the turn's own resolve (before
+  #   the reply), the post-reply read (turn is already the next turn there), the greeting read and a hand edit.
+  #   An edge rule fires each time its condition turns true (in any batch). A repeat: rule runs once per player turn, in the turn's own
+  #   resolve only; its hint: is dropped if a later rule makes it false that turn. turn counts up at the end of the resolve, so a
+  #   "turn - at >= 2" timeout fires in the read after the next reply (one message later); use ">= 3" for two messages.
+  #   roll() in a when: is one number per batch, and rolls again in the next batch: for a random event, roll in a repeat rule and
+  #   stamp the turn (do: { set: { rnd: "roll('1d100')", rnd_turn: "turn" } }), then require "rnd_turn == turn and rnd <= 30".
 
 --- # conflict
 conflict:                             # adventure only: fights, chases and arguments on one momentum gauge (−100 … +100)
+  # left out: fight, chase and argument that lean on body/mind/charm (else the first two check stats) and cost health/energy/mood if those exist; conflict: false = no contests
   from_story: true                    # a fight, chase or argument in the story starts a contest (or the effect contest:)
   rounds: { min: 3, max: 8 }          # each check swings the gauge; only a full swing (or Break off / Give in) ends it
   escalate: 0.4                       # the stakes rise each round
@@ -8079,6 +8363,8 @@ conflict:                             # adventure only: fights, chases and argum
     argument: { label: Argument, stats: [charm, mind], escape: charm, cost: { fail: { mood: -4 } }, won: { hint: "{opponent} gives in." }, lost: { hint: "{{user}} has to give ground." }, escaped: { hint: "{{user}} walks away." } }
 
 EFFECTS (any effects / success / fail / cost / do / reward / won block):
+  ORDER: whatever the YAML order, one block applies stat changes, then set:, flags:, items, rel:, place, look, conditions, goal, remember,
+  reveal, swing, contest, time, hint, decide. Each part sees the ones before it ({ set: { x: 0 }, x: 5 } ends at 0). To sequence, use two rules.
   stat shorthand: energy: -5 (or a quoted formula: money: "-min(money, 20)"); stats: { energy: -5 }; set: { stress: 50 }
   flags: { door_open: true }; give: rope / take: rope; items: { rope: 2 }
   rel: { jo: { trust: +3 } } (rel: { target: … } in a per-person move; rel: { opponent: … } in a contest)
@@ -8087,16 +8373,22 @@ EFFECTS (any effects / success / fail / cost / do / reward / won block):
   add_condition: [exhausted] or { exhausted: 120 }; remove_condition: [exhausted]
   hint: "a direction for the narrator"; remember: { jo: "{{user}} paid for her drink." } (something a person remembers)
   reveal: [past] (opens a secret's next stage); goal: { find_sister: done } (start | done | fail)
-  contest: { kind: fight, with: "the bouncer", threat: hard } (starts a contest); swing: +20 (moves a running contest's gauge)
+  contest: { kind: fight, with: "the bouncer", threat: hard } (starts a contest); swing: +20 (moves a running contest's gauge like a check: it stops at ±90 before rounds.min; a full swing ends the contest)
   decide: { ask: "How does Jo react?", options: { agrees: { desc: "She agrees", weight: 2, rel: { jo: { trust: +2 } } }, refuses: { desc: "She refuses", weight: 1 } } }
     (an uncertain reaction the engine rolls on the decision model's odds; options may have when:)
 
 FORMULA NAMES: every stat id, every flag id, minutes, hour, minute, day, weekday, turn, place (the words), round, momentum, in_contest,
 target (the person of a per-person move), target.<rel stat>, <person>.<rel stat>, items.<id>, flags.<id>.
-FUNCTIONS: has(item[, n]), count(item), flag(x), cond(x), rel(person, stat), met(person), present(person) (in the scene now),
+FUNCTIONS: has(item[, n]), count(item), flag(x), cond(x), rel(person, stat), met(person) (has been in a scene with {{user}}), present(person) (in the scene now),
 between(v, lo, hi) (wraps: between(hour, 21, 5)), roll('2d6') (in effects), goal(id) ('' | 'open' | 'done' | 'failed'), secret(id) (stages known),
 in_contest() / in_contest('fight'), eff(stat) (with gear and conditions), gear(stat) (gear alone), min, max, clamp, floor, ceil, round, abs.
 Operators: + - * / % < <= > >= == != and or not, a ? b : c. Strings in single quotes.
+A stat or flag named like a built-in (turn, day, hour …) hides the built-in in every formula.
+
+WHAT THE NARRATOR SEES each turn: the time and place, who is here, looks that matter now, a contest, meters with bands that are off their
+start band (or that the turn names), money when it is talked about, skills the turn names, conditions, items the turn names, and the
+feelings, voice and memories of the people HERE (someone absent reaches it only through a band line or a hint). Flags never reach it, and a
+meter without bands only when named: say what matters with bands, say: lines or hint:. For groups and factions, use meters, not people.
 
 NOT IN WARP ANY MORE (ignored with a warning; the old version is on the legacy branch): encounters (use conflict:), quests (use goals:),
 locations and travel (places come from the story), weather, wardrobe slots and body parts (use appearance / outfit text), perks, feats, codex,
@@ -8607,30 +8899,6 @@ function withCharacter(yaml, name) {
 `)}  people:
 ${entry}`;
 }
-// node_modules/warp/src/engine/mention.ts
-var STOP = new Set(["the", "and", "with", "for", "of", "a", "an", "to", "in", "on", "at", "from", "into", "across", "your", "my", "his", "her", "their"]);
-var sig = (name) => name.toLowerCase().split(/[^\p{L}\p{N}']+/u).filter((w) => w.length >= 3 && !STOP.has(w));
-var hasWord = (t, w) => new RegExp(`(^|[^\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(s|es)?([^\\p{L}]|$)`, "u").test(t);
-function namesIt(text, name, others = []) {
-  const t = text.toLowerCase();
-  const n = name.toLowerCase().trim();
-  if (!n)
-    return false;
-  if (t.includes(n))
-    return true;
-  const words = sig(n);
-  if (!words.length)
-    return false;
-  const hits = words.filter((w) => hasWord(t, w)).length;
-  if (words.length === 1)
-    return hits === 1;
-  const head = words[words.length - 1];
-  const shared = others.some((o) => o.toLowerCase() !== n && sig(o).slice(-1)[0] === head);
-  if (hasWord(t, head) && (!shared || hits >= 2))
-    return true;
-  return hits >= Math.max(2, words.length - 1);
-}
-
 // node_modules/warp/src/engine/view.ts
 function pct(v, min, max) {
   return max > min ? Math.max(0, Math.min(1, (v - min) / (max - min))) : 0;
@@ -9278,7 +9546,7 @@ function statLine(r, def, s, forceNumbers) {
     return `${def.label}: ${band.text}`;
   return `${def.label}: ${num}`;
 }
-var MONEY_WORDS = /\b(buy|buys|bought|pay|pays|paid|price|prices|cost|costs|afford|money|cash|coins?|tip|rent|shop|shopping|sell|sold|wallet|purse|spend|bill|debt|loan|bribe|wage|salary|change)\b/i;
+var MONEY_WORDS = /\b(buy|buys|bought|pay|pays|paid|price|prices|cost|costs|afford|money|cash|coins?|tip|rent|shop|shopping|sell|sold|wallet|purse|spend|bill|debt|loan|bribe|wage|salary|change)\b|돈|지갑|가격|값|계산|지불|결제|구매|구입|비용|월세|요금|빚|대출|월급|용돈|현금|잔돈|사 먹|사러|샀|팔았|팔아|판매|흥정/i;
 var LOOK_WORDS = /\b(wear|wears|wearing|wore|dress|dressed|dresses|shirt|coat|jacket|hoodie|hair|eyes|naked|nude|change|changes|changed|clothes|clothing|outfit|skirt|jeans|shoes|boots|hat|look|looks|face|scar|tattoo|makeup|undress|strip)\b/i;
 function lookSentence(name, l) {
   if (!l.appearance && !l.outfit)
@@ -9742,7 +10010,7 @@ function createLoopSim(r, opts = {}) {
       c.typed++;
       if (rec.check)
         c.typedRolled++;
-      if (run.policy === "dialogue") {
+      if (run.policy === "dialogue" && !before.contest) {
         dialogue.typed++;
         if (rec.check)
           dialogue.rolled++;
@@ -9772,7 +10040,7 @@ function createLoopSim(r, opts = {}) {
     }
     if (move.tag && run.policy === "greedy" && !before.contest)
       picks[move.tag] = (picks[move.tag] ?? 0) + 1;
-    const crossings = bandCrossings(r, before, after);
+    const crossings = bandCrossings(r, before, after).filter((x) => x.line);
     if (crossings.length) {
       c.crossings += crossings.length;
       if (!buildRecordView(r, "m", 0, whole, before, after).lines.length)
@@ -9838,7 +10106,7 @@ function createLoopSim(r, opts = {}) {
       ];
       if (r.style === "adventure") {
         const typedShare = dialogue.typed ? dialogue.rolled / dialogue.typed : 0;
-        gates.push({ id: "odds-shown-real", label: "Shown odds vs the real odds of the check that was rolled", value: c.worstOddsGap, bar: "≤ 0.02", pass: c.worstOddsGap <= 0.02 }, { id: "typed-rolls", label: "Typed messages that rolled, in a dialogue-heavy chat", value: typedShare, bar: "≤ 1/3", pass: typedShare <= 1 / 3 }, { id: "fail-direction", label: "Partial, failed and critically failed checks without a direction", value: c.failsWithoutDirection, bar: "= 0", pass: c.failsWithoutDirection === 0 }, { id: "odds-spread", label: "Odds spread of the written choices (easy … hard)", value: c.minSpread ?? 0, bar: "≥ 0.20", pass: c.minSpread === null || c.minSpread >= 0.2 });
+        gates.push({ id: "odds-shown-real", label: "Shown odds vs the real odds of the check that was rolled", value: c.worstOddsGap, bar: "≤ 0.02", pass: c.worstOddsGap <= 0.02 }, { id: "typed-rolls", label: "Typed messages that rolled, in a dialogue-heavy chat", value: typedShare, bar: "≤ 1/3", pass: typedShare <= 1 / 3 }, { id: "fail-direction", label: "Partial, failed and critically failed checks without a direction", value: c.failsWithoutDirection, bar: "= 0", pass: c.failsWithoutDirection === 0 }, { id: "odds-spread", label: "Odds spread of the written choices (easy … hard)", value: c.minSpread ?? 0, bar: c.minSpread === null ? "not measured: no turn offered checked choices with two difficulty words" : "≥ 0.20", pass: c.minSpread === null || c.minSpread >= 0.2 });
         if (contests.length) {
           const mean = contests.map((x) => x.meanRounds), within = contests.map((x) => x.within), broke = contests.map((x) => x.brokenOff);
           gates.push({ id: "contest-rounds", label: "Contest mean rounds, every kind × add 0–6 × threat", value: Math.max(...mean), bar: "3–6 in every cell", pass: mean.every((m) => m >= 3 && m <= 6) }, { id: "contest-3-6", label: "Share of contests that end in 3–6 rounds (worst cell)", value: Math.min(...within), bar: "≥ 0.80", pass: within.every((w) => w >= 0.8) }, { id: "contest-break-off", label: "Share of contests that break off at the last round (worst cell)", value: Math.max(...broke), bar: "≤ 0.05", pass: broke.every((b) => b <= 0.05) });
@@ -9846,7 +10114,10 @@ function createLoopSim(r, opts = {}) {
       }
       if (pickTotal) {
         const top = Math.max(...Object.values(tagShare));
-        gates.push({ id: "greedy-tag-share", label: "Share of one tag in a greedy player's picks", value: top, bar: "≤ 0.50", pass: top <= 0.5 });
+        const tags = Object.keys(r.liveChoices.tags).length;
+        const bar = tags <= 2 ? 0.75 : 0.5;
+        if (tags >= 2)
+          gates.push({ id: "greedy-tag-share", label: "Share of one tag in a greedy player's picks", value: top, bar: `≤ ${bar.toFixed(2)}`, pass: top <= bar });
       }
       if (alwaysTag && gains.always.length) {
         const ratio = c.mixedGain > 0 ? c.alwaysGain / c.mixedGain : c.alwaysGain > 0 ? Infinity : 0;
