@@ -2,7 +2,7 @@
 // YAML text per lorebook entry "warp-ruleset · <label>". Pure: no host, no I/O.
 
 import {
-  joinRulebook, lintRuleset, loadRuleset, looksLikeScenario, PART_LABELS, partForIssue, REMOVED_KEYS,
+  joinRulebook, lintRuleset, loadRuleset, looksLikeScenario, PART_LABELS, PART_OF_KEY, partForIssue, REMOVED_KEYS,
   splitRulebook, TEMPLATES, withCharacter, type Issue, type Ruleset, type RulesetPart,
 } from "../warp.js";
 
@@ -51,10 +51,13 @@ export function checkParts(parts: Part[]): PartsCheck {
   const { ruleset, issues } = loadRuleset(asRulesetParts(parts));
   const all = ruleset ? [...issues, ...lintRuleset(ruleset)] : issues;
   const labels = new Set(parts.map((p) => p.label));
-  // "warp-ruleset · stats 2, line 3" belongs to "stats 2" when the draft has it; otherwise Warp decides.
+  // "warp-ruleset · stats 2, line 3" belongs to "stats 2" when the draft has it; "Checks › dc" to the section
+  // that holds `checks:`; otherwise Warp decides.
   const placeOf = (where: string) => {
     const head = where.replace(/^warp-ruleset\s*·\s*/i, "").split(/[›,]/)[0].trim().toLowerCase();
-    return labels.has(head) ? head : partForIssue(where);
+    if (labels.has(head)) return head;
+    const byKey = PART_OF_KEY[head.replace(/\s+/g, "_")];
+    return byKey && labels.has(byKey) ? byKey : partForIssue(where);
   };
   const checked: CheckedPart[] = parts.map((p) => {
     const mine = all.filter((i) => placeOf(i.where) === p.label).map(toIssue);

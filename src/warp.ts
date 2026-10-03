@@ -1,49 +1,45 @@
 // The seam to Warp's engine. This is the only file in Warp Studio that imports
-// from `warp/…` (a pinned devDependency, bundled into every output). When Warp
-// renames something, only this file changes.
-//
-// Stage note: the pin is Warp `core` before the new ruleset format lands. Names
-// that Warp does not export yet are read defensively here (see `ENGINE_FORMAT`).
+// from `warp/…` (a pinned devDependency, bundled into every output). Warp keeps
+// the same list in its own src/studio-api.ts, so Warp's type check guards it.
+// When Warp renames something, only this file changes.
 
 import pkg from "../package.json";
-import * as rulesetModule from "warp/src/engine/ruleset.js";
+import { RULESET_FORMAT, statAdd, type GameState, type KindDef, type Ruleset } from "warp/src/studio-api.js";
 
-export { loadRuleset, isRulesetBookName, isRulesetEntryTitle, type RulesetPart, type LoadResult } from "warp/src/engine/loader.js";
-export { lintRuleset } from "warp/src/engine/lint.js";
-export type { Issue, Ruleset } from "warp/src/engine/ruleset.js";
-export { REMOVED_KEYS, REMOVED_EFFECTS } from "warp/src/engine/ruleset.js";
-export { splitRulebook, joinRulebook, type RulebookPart } from "warp/src/engine/rulebook.js";
-export { PART_LABELS, PART_CONTENTS, partForIssue, REFERENCE, DESIGN_GUIDE } from "warp/src/engine/reference.js";
-export { TEMPLATES, getTemplate, withCharacter, looksLikeScenario, type Template } from "warp/src/engine/templates/index.js";
-export { initialState } from "warp/src/engine/state.js";
-export { buildHud, buildChoices, stateDigest } from "warp/src/engine/view.js";
+export {
+  loadRuleset, isRulesetBookName, isRulesetEntryTitle, lintRuleset, REMOVED_KEYS, REMOVED_EFFECT_NAMES, REMOVED_FORMULA_NAMES,
+  RULESET_FORMAT, TOP_LEVEL_KEYS, DIFFICULTIES, TIERS, splitRulebook, joinRulebook, PART_LABELS, PART_CONTENTS, partForIssue,
+  REFERENCE, DESIGN_GUIDE, TEMPLATES, getTemplate, withCharacter, looksLikeScenario, compile, identifiers, evalBool, initialState,
+  makeEnv, d20Odds, buildHud, buildChoices, stateDigest, runLoopSim, createLoopSim, simulateContest, statAdd,
+  type RulesetPart, type LoadResult, type Issue, type Ruleset, type StatDef, type Band, type Effect, type ActionDef, type KindDef,
+  type GoalDef, type Difficulty, type Tier, type GameState, type RulebookPart, type Template, type LoopOptions, type LoopReport,
+  type LoopGate, type LoopCheckRow, type LoopContestRow, type ContestSim,
+} from "warp/src/studio-api.js";
+export { odds as actionOdds } from "warp/src/studio-api.js";
+/** Which section each top-level key belongs in. */
+export { PART_OF_KEY } from "warp/src/engine/rulebook.js";
 // Lorebook I/O (host-only: these call the global `spindle`, which is Studio's own API object in its backend).
 export { publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
-
 export { STUDIO_FORMAT } from "./shared/format.js";
 
-/**
- * The ruleset format of the pinned engine. Warp exports `RULESET_FORMAT` from the new format on;
- * an engine without it is the format before that (1).
- */
-export const ENGINE_FORMAT: number = (() => {
-  const v = (rulesetModule as Record<string, unknown>).RULESET_FORMAT;
-  return typeof v === "number" ? v : 1;
-})();
-
-/** True once the pinned engine exports its format number. */
-export const ENGINE_EXPORTS_FORMAT = typeof (rulesetModule as Record<string, unknown>).RULESET_FORMAT === "number";
+/** The ruleset format of the pinned engine. */
+export const ENGINE_FORMAT: number = RULESET_FORMAT;
 
 export const STUDIO_VERSION: string = pkg.version;
 
 /** The engine pin, as written in package.json ("github:japolino/warp#<sha>"). */
 export const WARP_PIN: string = pkg.devDependencies.warp;
 
-/** "warp#8f61ee9" — the short form shown in `--version` and the About line. */
+/** "warp#fd75881" — the short form shown in `--version` and the About line. */
 export const WARP_PIN_SHORT: string = (() => {
   const m = /#([0-9a-f]{7,40})$/i.exec(WARP_PIN);
   return m ? `warp#${m[1].slice(0, 7)}` : WARP_PIN;
 })();
 
 /** What Studio writes into an installed book's metadata (`metadata.warp`). */
-export const STAMP = { format: ENGINE_FORMAT, by: `warp_studio@${pkg.version}` };
+export const STAMP = { format: RULESET_FORMAT, by: `warp_studio@${pkg.version}` };
+
+/** What the player's best stat for a contest kind adds to the d20 in this state. */
+export function contestAddAtStart(r: Ruleset, s: GameState, kind: KindDef): number {
+  return Math.max(0, ...kind.stats.map((st) => statAdd(r, s, st)));
+}

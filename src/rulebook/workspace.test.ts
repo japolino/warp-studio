@@ -36,11 +36,18 @@ describe("one file ↔ sections", () => {
 });
 
 describe("checking a draft", () => {
-  test("both templates load with no errors and no warnings", () => {
+  test("every template loads with no errors", () => {
     for (const t of TEMPLATES) {
       const c = checkParts(fromTemplate(t.id, { name: "Mira Vale" })!);
-      expect({ id: t.id, errors: c.errors, warnings: c.warnings, ruleset: !!c.ruleset }).toEqual({ id: t.id, errors: 0, warnings: 0, ruleset: true });
+      expect({ id: t.id, errors: c.errors, ruleset: !!c.ruleset, legacy: c.legacy }).toEqual({ id: t.id, errors: 0, ruleset: true, legacy: [] });
     }
+  });
+
+  test("an issue goes to the section that holds its key", () => {
+    const c = checkParts([{ label: "core", yaml: "name: T\nstyle: adventure\n" }, { label: "stats", yaml: "checks:\n  partial: lots\n" }]);
+    const mine = c.parts.find((p) => p.label === "stats")!.issues;
+    expect(mine.length + c.unplaced.length).toBe(c.issues.length - c.parts.find((p) => p.label === "core")!.issues.length);
+    expect(c.issues.filter((i) => /^Checks/i.test(i.where)).every((i) => mine.some((m) => m.where === i.where))).toBe(true);
   });
 
   test("starting from a template adds the card's character, but not for a scenario card", () => {

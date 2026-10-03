@@ -13,7 +13,7 @@ import { INSTRUCTIONS, TOOLS } from "./tools/mcp.js";
 import { USAGE } from "./tools/commands.js";
 import { workflowText } from "./tools/rulebook-tools.js";
 import { checkParts, fromText } from "./rulebook/workspace.js";
-import { REMOVED_EFFECTS, REMOVED_KEYS } from "./warp.js";
+import { REMOVED_EFFECT_NAMES, REMOVED_KEYS } from "./warp.js";
 
 const file = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -29,7 +29,7 @@ const TEXTS: Record<string, string> = {
   "CLI usage": USAGE,
 };
 
-const removed = [...new Set([...Object.keys(REMOVED_KEYS), ...Object.keys(REMOVED_EFFECTS)])];
+const removed = [...new Set([...Object.keys(REMOVED_KEYS), ...REMOVED_EFFECT_NAMES])];
 const yamlBlocks = (text: string) => [...text.matchAll(/```ya?ml\n([\s\S]*?)```/g)].map((m) => m[1]);
 
 /** Removed keys the prose names as keys: `quests:` in backticks, or a top-level `quests:` line outside code blocks. */
