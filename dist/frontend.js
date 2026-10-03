@@ -107,12 +107,49 @@ var STYLES = `
 .ws-toggle { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; cursor: pointer; }
 .ws-toggle small { grid-column: 1; color: var(--ws-dim); }
 .ws-toggle input { grid-row: 1 / span 2; grid-column: 2; accent-color: var(--ws-accent); width: 16px; height: 16px; }
+.ws-field .ws-input[type=number] { width: 90px; }
+
+/* Check: one bar per core system, then the findings. */
+.ws-systems, .ws-shares { display: flex; flex-direction: column; gap: 4px; }
+.ws-sys { display: grid; grid-template-columns: 90px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; }
+.ws-sys b { text-align: right; font-variant-numeric: tabular-nums; }
+.ws-sys-off { color: var(--ws-dim); }
+.ws-bar { height: 6px; border-radius: 3px; background: var(--ws-fill); overflow: hidden; }
+.ws-bar i { display: block; height: 100%; border-radius: 3px; }
+.ws-fill-good { background: var(--ws-good); }
+.ws-fill-warn { background: var(--ws-warn); }
+.ws-fill-bad { background: var(--ws-bad); }
+.ws-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ws-finding { border-left: 3px solid var(--ws-border); padding: 4px 8px; display: flex; flex-direction: column; gap: 3px; }
+.ws-finding p { margin: 0; }
+.ws-sev-gap { border-left-color: var(--ws-bad); }
+.ws-sev-thin, .ws-sev-balance { border-left-color: var(--ws-warn); }
+.ws-waived { opacity: .65; }
+.ws-finding .ws-input { flex: 1; width: auto; }
+
+/* Playtest: Warp's gates and the tables. */
+.ws-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ws-table th, .ws-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--ws-border); }
+.ws-table th { color: var(--ws-dim); font-weight: 500; }
+.ws-pass td:first-child { color: var(--ws-good); }
+.ws-fail td:first-child, .ws-fail td:nth-child(3) { color: var(--ws-bad); }
+.ws-best { background: var(--ws-fill); font-weight: 600; }
+.ws-progress { flex: 1; max-width: 220px; height: 8px; border-radius: 4px; background: var(--ws-fill); overflow: hidden; }
+.ws-progress i { display: block; height: 100%; background: var(--ws-accent); transition: width .2s; }
+
+/* Review: what a rewrite changes. */
+.ws-diff { margin: 6px 0 0; padding: 6px 8px; background: var(--ws-fill); border-radius: 6px; font-size: 11.5px; line-height: 1.45; overflow-x: auto; white-space: pre; }
+.ws-diff-add { color: var(--ws-good); }
+.ws-diff-del { color: var(--ws-bad); text-decoration: line-through; text-decoration-color: rgba(224,108,108,.5); }
+.ws-diff-ctx { color: var(--ws-dim); }
+.ws-review-dropped { opacity: .7; }
+.ws-part > summary input[type=checkbox] { accent-color: var(--ws-accent); }
 `;
 
 // src/frontend/view.ts
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function emptyUi() {
-  return { pane: "sections", unsaved: {}, importText: "", importName: null, showStart: false, confirmDiscard: false, picking: false };
+  return { pane: "sections", unsaved: {}, importText: "", importName: null, showStart: false, confirmDiscard: false, picking: false, waiving: null, waiveText: "" };
 }
 var btn = (action, label, o = {}) => `<button class="ws-btn${o.primary ? " ws-btn-primary" : ""}${o.ghost ? " ws-btn-ghost" : ""}" data-ws="${esc(action)}"${Object.entries(o.data ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join("")}${o.title ? ` title="${esc(o.title)}"` : ""}${o.disabled ? " disabled" : ""}>${esc(label)}</button>`;
 var plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -178,6 +215,75 @@ function previewPane(d) {
   ${list("What the narrator is told", p.narrator, "Nothing yet.")}
 </div>`;
 }
+var pct = (x) => `${Math.round(x * 100)}%`;
+function systemBars(c) {
+  return `<div class="ws-systems">${c.systems.map((s) => s.score === null ? `<div class="ws-sys ws-sys-off"><span>${esc(s.label)}</span><div class="ws-bar"></div><b>not used</b></div>` : `<div class="ws-sys"><span>${esc(s.label)}</span><div class="ws-bar"><i class="${s.score >= 80 ? "ws-fill-good" : s.score >= 50 ? "ws-fill-warn" : "ws-fill-bad"}" style="width:${s.score}%"></i></div><b>${s.score}</b></div>`).join("")}</div>`;
+}
+var SEVERITY = { gap: "gap", thin: "thin", balance: "balance" };
+function checkPane(m, v, d) {
+  const c = d.check;
+  if (!c)
+    return `<p class="ws-dim">Check runs once the draft loads without errors. Fix the sections marked in red first.</p>`;
+  const busy = !!v.busy;
+  const canGenerate = m.settings?.canGenerate !== false;
+  const showThin = m.settings?.settings.showThin !== false;
+  const shown = c.findings.filter((f) => showThin || f.severity !== "thin");
+  const hidden = c.findings.length - shown.length;
+  const deepenable = c.findings.some((f) => !f.waived && f.severity !== "balance") || !!d.banner;
+  const rows = shown.map((f) => {
+    const waiving = m.ui.waiving === f.id;
+    const actions = f.waived ? `<span class="ws-dim">Left as is: ${esc(f.waived)}</span>${btn("unwaive", "Undo", { ghost: true, data: { finding: f.id } })}` : waiving ? `<input class="ws-input" data-ws-waive-text placeholder="Why it stays as it is (8 characters or more)" value="${esc(m.ui.waiveText)}">${btn("waive", "Leave as is", { data: { finding: f.id } })}${btn("waive-cancel", "Cancel", { ghost: true })}` : `${btn("fix", "Fix", { disabled: busy || !canGenerate, title: canGenerate ? "One helper call (at most 3 with repairs); you review the result" : "Studio may not use a model", data: { finding: f.id } })}${btn("waive-open", "Leave as is", { ghost: true, data: { finding: f.id } })}`;
+    return `<li class="ws-finding ws-sev-${SEVERITY[f.severity]}${f.waived ? " ws-waived" : ""}">
+  <div class="ws-row"><span class="ws-chip ws-chip-${f.severity === "gap" ? "error" : "warn"}">${esc(f.severity)}</span><span class="ws-dim">${esc(f.system)} · ${esc(f.part)}</span></div>
+  <p>${esc(f.text)}</p><p class="ws-dim">Fix: ${esc(f.fix)}</p>
+  <div class="ws-row">${actions}</div>
+</li>`;
+  }).join("");
+  return `${systemBars(c)}
+  ${c.style === "story" ? `<p class="ws-dim">A story doesn't roll: Checks and Conflict are not used.</p>` : ""}
+  <div class="ws-row ws-spread"><span>${c.open ? `${plural(c.open, "open finding")}` : "✓ Nothing open."}${hidden ? ` <span class="ws-dim">(${plural(hidden, "thin spot")} hidden in Settings)</span>` : ""}</span>
+  ${btn("deepen", "Deepen", { primary: true, disabled: busy || !canGenerate || !deepenable, title: "Rewrite every section with open gaps or thin spots (at most 12 helper calls); you review the result" })}</div>
+  ${rows ? `<ul class="ws-findings">${rows}</ul>` : ""}`;
+}
+function gateRows(rep) {
+  return `<table class="ws-table"><tbody>${rep.gates.map((g) => `<tr class="${g.pass ? "ws-pass" : "ws-fail"}"><td>${g.pass ? "✓" : "✕"}</td><td>${esc(g.label)}</td><td>${esc(Number.isInteger(g.value) ? g.value : g.value.toFixed(2))}</td><td class="ws-dim">${esc(g.bar)}</td></tr>`).join("")}</tbody></table>`;
+}
+function playtestReport(rep) {
+  const share = rep.tagShare.length ? `<h4>Tag share (a greedy player)</h4><div class="ws-shares">${rep.tagShare.map((t) => `<div class="ws-sys"><span>${esc(t.tag)}</span><div class="ws-bar"><i class="${t.share > 0.5 ? "ws-fill-bad" : "ws-fill-good"}" style="width:${Math.round(t.share * 100)}%"></i></div><b>${pct(t.share)}</b></div>`).join("")}</div>` : "";
+  const words = ["easy", "fair", "hard", "extreme"];
+  const odds = rep.odds.length ? `<h4>Odds at the start</h4><table class="ws-table"><thead><tr><th></th>${words.map((w) => `<th>${w}</th>`).join("")}</tr></thead><tbody>${rep.odds.map((o) => `<tr><td>${esc(o.tag)}</td>${o.cells.map((c) => `<td>${c.pct}%</td>`).join("")}</tr>`).join("")}</tbody></table>` : "";
+  const contests = rep.contests.map((c) => `<h4>${esc(c.label)}: win % · mean rounds</h4><table class="ws-table"><thead><tr><th>add</th>${words.map((w) => `<th>${w}</th>`).join("")}</tr></thead><tbody>${c.rows.map((row) => `<tr${row.add === c.best ? ` class="ws-best" title="The player's best start stat for this kind"` : ""}><td>+${row.add}</td>${row.cells.map((x) => `<td>${pct(x.won)} · ${x.meanRounds.toFixed(1)}</td>`).join("")}</tr>`).join("")}</tbody></table>`).join("");
+  return `<p class="${rep.pass ? "ws-good" : "ws-bad"}">${rep.pass ? "✓ Every gate passes." : `✕ ${plural(rep.gates.filter((g) => !g.pass).length, "gate")} fail${rep.gates.filter((g) => !g.pass).length === 1 ? "s" : ""}.`} <span class="ws-dim">${rep.turns} turns × ${rep.seeds} seeds per player policy.</span></p>
+  <h4>Warp's gates</h4>${gateRows(rep)}${share}${odds}${contests}`;
+}
+function playtestPane(m, v, d) {
+  const busy = !!v.busy;
+  const s = m.settings?.settings;
+  const size = s ? `${s.playtestTurns} turns × ${s.playtestSeeds} seeds` : "";
+  const running = m.progress !== null && !!v.busy;
+  const head = `<div class="ws-row ws-spread"><p class="ws-dim">Warp's own loop simulator plays the draft with scripted players and a fake narrator. No model, no cost.</p>
+  ${running ? `<div class="ws-progress"><i style="width:${Math.round((m.progress ?? 0) * 100)}%"></i></div>` : btn("playtest", `Run ${size}`.trim(), { primary: true, disabled: busy || !d.check })}</div>`;
+  if (!d.check)
+    return `${head}<p class="ws-dim">The playtest runs once the draft loads without errors.</p>`;
+  if (!d.playtest)
+    return `${head}<p class="ws-dim">No playtest yet.</p>`;
+  return `${head}${d.playtest.stale ? `<p class="ws-warn">The draft changed since this run. Run it again to see the new numbers.</p>` : ""}${playtestReport(d.playtest.report)}`;
+}
+function reviewPane(p, busy) {
+  const scoreChanges = Object.keys({ ...p.scores.before, ...p.scores.after }).filter((k) => p.scores.before[k] !== p.scores.after[k]).map((k) => `${esc(k)} ${p.scores.before[k] ?? "–"} → ${p.scores.after[k] ?? "–"}`);
+  const gateChanges = p.gates.after.filter((g) => p.gates.before.find((b) => b.id === g.id)?.pass !== g.pass).map((g) => `${g.pass ? "✓" : "✕"} ${esc(g.label)}`);
+  const kept = p.sections.filter((s) => s.kept);
+  const sections = p.sections.map((s) => `<details class="ws-part ws-review-${s.kept ? "kept" : "dropped"}" data-section="review:${esc(s.label)}"${s.kept ? " open" : ""}>
+  <summary>${s.kept ? `<input type="checkbox" data-ws-pick-section value="${esc(s.label)}" checked>` : ""}<span class="ws-part-name">${esc(s.label)}</span><span class="ws-part-what">${esc(s.kept ? s.summary ?? "" : `dropped: ${s.reason ?? ""}`)}</span><span class="ws-chip">+${s.added} −${s.removed}</span></summary>
+  ${s.diff.length ? `<pre class="ws-diff">${s.diff.map((l) => `<span class="ws-diff-${l.op === "+" ? "add" : l.op === "-" ? "del" : "ctx"}">${esc(l.op)} ${esc(l.text)}</span>`).join(`
+`)}</pre>` : ""}
+</details>`).join("");
+  return `<p><b>${p.kind === "fix" ? "Fix" : "Deepen"}</b> <span class="ws-dim">${plural(p.calls, "helper call")} · ${plural(kept.length, "section")} kept of ${p.sections.length}. Nothing is in the draft until you accept it.</span></p>
+  ${scoreChanges.length ? `<p>Scores: ${scoreChanges.join(" · ")}</p>` : `<p class="ws-dim">No score changed.</p>`}
+  ${gateChanges.length ? `<p>Gates: ${gateChanges.join(" · ")}</p>` : ""}
+  ${sections}
+  <div class="ws-row">${btn("review-some", "Accept the ticked sections", { primary: true, disabled: busy || !kept.length })}${btn("review-all", "Accept all kept", { disabled: busy || !kept.length })}${btn("review-none", "Discard", { ghost: true, disabled: busy })}</div>`;
+}
 function installArea(m, v, d) {
   const busy = !!v.busy;
   const name = v.character?.name ?? "this character";
@@ -195,8 +301,16 @@ function installArea(m, v, d) {
 function draftCard(m, v, d) {
   const busy = !!v.busy;
   const sections = m.settings?.sections ?? [];
-  const tabs = ["sections", "preview"].map((p) => `<button class="ws-tab" data-ws="pane" data-pane="${p}" aria-selected="${m.ui.pane === p}">${p === "sections" ? `Sections (${d.parts.length})` : "Preview"}</button>`).join("");
-  const body = m.ui.pane === "preview" ? previewPane(d) : `${problems(d)}${d.parts.map((p) => partCard(p, sections.find((s) => s.label === p.label.replace(/ \d+$/, "")), m.ui, busy)).join("")}${addSection(d, sections, busy)}`;
+  const panes = [
+    ["sections", `Sections (${d.parts.length})`],
+    ["check", d.check ? `Check (${d.check.open})` : "Check"],
+    ["playtest", d.playtest ? `Playtest ${d.playtest.report.pass ? "✓" : "✕"}` : "Playtest"],
+    ["preview", "Preview"],
+    ...d.proposal ? [["review", "Review ●"]] : []
+  ];
+  const pane = m.ui.pane === "review" && !d.proposal ? "sections" : m.ui.pane;
+  const tabs = panes.map(([p, label]) => `<button class="ws-tab" role="tab" data-ws="pane" data-pane="${p}" aria-selected="${pane === p}">${esc(label)}</button>`).join("");
+  const body = pane === "preview" ? previewPane(d) : pane === "check" ? checkPane(m, v, d) : pane === "playtest" ? playtestPane(m, v, d) : pane === "review" && d.proposal ? reviewPane(d.proposal, busy) : `${problems(d)}${d.parts.map((p) => partCard(p, sections.find((s) => s.label === p.label.replace(/ \d+$/, "")), m.ui, busy)).join("")}${addSection(d, sections, busy)}`;
   return `<div class="ws-card ws-draft">
   <div class="ws-row ws-spread"><h3>${esc(baseText(d.base))}</h3><span class="ws-dim">${d.changed ? "changed" : "same as installed"}</span></div>
   ${d.banner ? `<p class="ws-banner" role="note">${esc(d.banner)}</p>` : ""}
@@ -251,7 +365,9 @@ function settingsCard(s) {
   <summary><b>Settings</b></summary>
   <label class="ws-field">Helper model for Fix and Deepen<select class="ws-input" data-setting="helperConnectionId">${conns}</select></label>
   <label class="ws-toggle"><span>Creative writing</span><small>Fix and Deepen write at temperature 0.8 instead of 0.4.</small><input type="checkbox" data-setting="creative"${s.settings.creative ? " checked" : ""}></label>
-  ${s.canGenerate ? "" : `<p class="ws-warn">Studio may not use a model (no generation permission). Checks, import, export and Install still work.</p>`}
+  <div class="ws-row"><label class="ws-field">Playtest turns<input class="ws-input" type="number" min="5" max="200" data-setting="playtestTurns" value="${s.settings.playtestTurns}"></label><label class="ws-field">Seeds<input class="ws-input" type="number" min="1" max="200" data-setting="playtestSeeds" value="${s.settings.playtestSeeds}"></label></div>
+  <label class="ws-toggle"><span>Show thin spots</span><small>Off: Check lists only gaps and balance (the scores still count thin spots).</small><input type="checkbox" data-setting="showThin"${s.settings.showThin ? " checked" : ""}></label>
+  ${s.canGenerate ? "" : `<p class="ws-warn">Studio may not use a model (no generation permission). Check, Playtest, import, export and Install still work.</p>`}
   <p class="ws-dim">${esc(s.about)}</p>
 </details>`;
 }
@@ -270,7 +386,7 @@ function renderStudio(m) {
   const v = m.view;
   if (!v)
     return `${head}<p class="ws-dim">Loading…</p>`;
-  const busy = v.busy ? `<p class="ws-busy" role="status"><span class="ws-spin"></span>${esc(v.busy)}</p>` : "";
+  const busy = v.busy ? `<p class="ws-busy" role="status"><span class="ws-spin"></span>${esc(v.busy)}${v.cancellable ? ` ${btn("cancel", "Cancel", { ghost: true })}` : ""}</p>` : "";
   const error = v.error ? `<p class="ws-error" role="alert">${esc(v.error)}</p>` : "";
   return [
     head,
@@ -358,6 +474,7 @@ function setup(ctx) {
   const exported = new Map;
   let characters = null;
   let picked = null;
+  const progress = new Map;
   const warp = connectWarp(() => renderAll());
   cleanups.push(() => warp.stop());
   const status = () => warpStatus(warp.seen(), STUDIO_FORMAT);
@@ -423,6 +540,7 @@ function setup(ctx) {
       exported: id ? exported.get(id) ?? null : null,
       characters,
       picked: r.mode === "drawer" && !!picked,
+      progress: id ? progress.get(id) ?? null : null,
       ui: r.ui
     });
     for (const d of r.el.querySelectorAll("details[data-section]")) {
@@ -457,6 +575,8 @@ function setup(ctx) {
           save.disabled = !(yamlLabel in r.ui.unsaved);
       } else if (t.hasAttribute?.("data-ws-import"))
         r.ui.importText = t.value;
+      else if (t.hasAttribute?.("data-ws-waive-text"))
+        r.ui.waiveText = t.value;
       return;
     }
     if (e.type === "change") {
@@ -533,7 +653,14 @@ function setup(ctx) {
           exported.delete(id);
         break;
       case "pane":
-        r.ui.pane = b.dataset.pane === "preview" ? "preview" : "sections";
+        r.ui.pane = ["sections", "check", "playtest", "preview", "review"].includes(b.dataset.pane ?? "") ? b.dataset.pane : "sections";
+        break;
+      case "waive-open":
+        r.ui.waiving = b.dataset.finding ?? null;
+        r.ui.waiveText = "";
+        break;
+      case "waive-cancel":
+        r.ui.waiving = null;
         break;
       default: {
         if (!id)
@@ -591,6 +718,47 @@ function setup(ctx) {
             flush(r, id);
             send({ type: "install", characterId: id, warp: warp.seen() ?? { present: false, format: null } });
             return;
+          case "playtest":
+            flush(r, id);
+            progress.set(id, 0);
+            send({ type: "playtest", characterId: id });
+            break;
+          case "cancel":
+            send({ type: "cancel", characterId: id });
+            return;
+          case "fix":
+            flush(r, id);
+            send({ type: "fix", characterId: id, findingId: b.dataset.finding });
+            return;
+          case "deepen":
+            flush(r, id);
+            send({ type: "deepen", characterId: id });
+            return;
+          case "waive": {
+            const reason = r.el.querySelector("[data-ws-waive-text]")?.value ?? r.ui.waiveText;
+            if (reason.trim().length < 8) {
+              r.el.querySelector("[data-ws-waive-text]")?.focus();
+              return;
+            }
+            send({ type: "waive", characterId: id, id: b.dataset.finding, reason });
+            r.ui.waiving = null;
+            r.ui.waiveText = "";
+            break;
+          }
+          case "unwaive":
+            send({ type: "unwaive", characterId: id, id: b.dataset.finding });
+            return;
+          case "review-all":
+            send({ type: "review", characterId: id, accept: "all" });
+            return;
+          case "review-none":
+            send({ type: "review", characterId: id, accept: "none" });
+            return;
+          case "review-some": {
+            const picks = [...r.el.querySelectorAll("[data-ws-pick-section]")].filter((x) => x.checked).map((x) => x.value);
+            send({ type: "review", characterId: id, accept: picks });
+            return;
+          }
           case "discard":
             if (!r.ui.confirmDiscard) {
               r.ui.confirmDiscard = true;
@@ -669,12 +837,27 @@ function setup(ctx) {
         }
         break;
       case "studio": {
+        const before = views.get(m.view.characterId);
         views.set(m.view.characterId, m.view);
+        if (!m.view.busy)
+          progress.delete(m.view.characterId);
+        const proposed = !before?.draft?.proposal && !!m.view.draft?.proposal;
         for (const r of roots)
           if (r.target() === m.view.characterId) {
             reconcile(r.ui, m.view);
+            if (proposed)
+              r.ui.pane = "review";
+            else if (r.ui.pane === "review" && !m.view.draft?.proposal)
+              r.ui.pane = "check";
             render(r);
           }
+        break;
+      }
+      case "playtest_progress": {
+        progress.set(m.characterId, m.share);
+        for (const r of roots)
+          if (r.target() === m.characterId)
+            render(r);
         break;
       }
       case "exported":
