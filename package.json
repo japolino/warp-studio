@@ -24,6 +24,6 @@
     "js-yaml": "^4.1.0",
     "lumiverse-spindle-types": "0.6.36",
     "typescript": "^5.9.0",
-    "warp": "github:japolino/warp#67fc280e4cd9a41dfba8318e60af9d99fc3d42de"
+    "warp": "github:japolino/warp#a3e42b7262d46ebc9e8b7df0fa986caef76bf590"
   }
 }

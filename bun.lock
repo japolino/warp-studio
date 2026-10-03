@@ -10,8 +10,8 @@
         "js-yaml": "^4.1.0",
         "lumiverse-spindle-types": "0.6.36",
         "typescript": "^5.9.0",
+        "warp": "github:japolino/warp#a3e42b7262d46ebc9e8b7df0fa986caef76bf590",
         "warp": "github:japolino/warp#67fc280e4cd9a41dfba8318e60af9d99fc3d42de",
-        "warp": "github:japolino/warp#fd758816ecc2d3a661ff39e09f312c7fb3e92345",
       },
     },
   },
@@ -32,6 +32,6 @@
 
     "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
-    "warp": ["warp@github:japolino/warp#67fc280", { "dependencies": { "js-yaml": "^4.1.0" } }, "japolino-warp-67fc280", "sha512-YQhHp19so0fXYRIFNPCLlXIy6U+6JcEC8vsM49DdjikzbEe/Qxle/N6qG6BSDXBNhKszYPpNOzaHjWEyrv9c8w=="],
+    "warp": ["warp@github:japolino/warp#a3e42b7", { "dependencies": { "js-yaml": "^4.1.0" } }, "japolino-warp-a3e42b7", "sha512-l9t1nEy0VFbYty3iltJTZpRDxtVXYMjSic/yaYXpvKK0l+0UW2b9nb0xN0SYbcSItRV0EiA4ATpl8a2wxIeaxA=="],
   }
 }

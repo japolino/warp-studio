@@ -53,7 +53,7 @@ describe("each finding fires on its fixture", () => {
 
 describe("the six systems", () => {
   test("every finding names one of the six systems and a real section", () => {
-    const parts = new Set(Object.values(PART_OF_KEY));
+    const parts = new Set<string>(Object.values(PART_OF_KEY));
     const systems = new Set(SYSTEMS.map((s) => s.id));
     for (const name of ["dead-parts.yaml", "thin-story.yaml", "balance.yaml"]) {
       for (const f of auditRuleset(fixture(name)).findings) {
@@ -78,11 +78,17 @@ describe("the six systems", () => {
   });
 
   test("Warp's templates load with no gap in the systems they use", () => {
-    // TODO(step 4): Romance becomes Story (style: story); until then its tags count as an adventure's.
-    for (const t of TEMPLATES.filter((x) => x.id !== "romance")) {
+    for (const t of TEMPLATES) {
       const c = checkParts(fromTemplate(t.id, { name: "Mira" })!);
       const gaps = auditRuleset(c.ruleset!).findings.filter((f) => f.severity === "gap");
       expect({ t: t.id, gaps: ids(gaps) }).toEqual({ t: t.id, gaps: [] });
     }
+  });
+
+  test("a story template shows Checks and Conflict as not used", () => {
+    const story = TEMPLATES.map((t) => checkParts(fromTemplate(t.id, { name: "Mira" })!).ruleset!).find((r) => r.style === "story")!;
+    expect(story).toBeDefined();
+    const by = Object.fromEntries(auditRuleset(story).systems.map((s) => [s.id, s.score]));
+    expect([by.checks, by.conflict]).toEqual([null, null]);
   });
 });

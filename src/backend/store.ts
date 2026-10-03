@@ -1,15 +1,16 @@
 // The character's warp-ruleset lorebook: read exactly what Warp loads, and
-// publish a new complete snapshot on Install.
-//
-// Which book Warp reads is Warp's own `attachedRulebooks`; publishing is Warp's
-// own `publishRulebook`. TODO(Warp step 4): the entry listing and labels below
-// mirror Warp's `rulesetEntries` + `labelOf` (backend/builder.ts); when they move
-// to backend/rulebook-install.ts, import them through src/warp.ts instead.
+// publish a new complete snapshot on Install. All of the lorebook protocol is
+// Warp's own (backend/rulebook-install.ts): `attachedRulebooks` (which book is
+// active), `rulesetEntries` + `labelOf` (the entries Warp runs, and their
+// section labels) and `publishRulebook`. Studio adds the list of books for its
+// "older books" view and the format stamp.
 
 import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { cleanLabel, type Part } from "../rulebook/workspace.js";
 import type { BookView, CharacterView } from "../shared/protocol.js";
-import { attachedRulebooks, isInstalledRulebook, isRulesetBookName, isRulesetEntryTitle, publishRulebook, STAMP } from "../warp.js";
+import {
+  attachedRulebooks, isInstalledRulebook, isRulesetBookName, isRulesetEntryTitle, labelOf, publishRulebook, rulesetEntries, STAMP,
+} from "../warp.js";
 import { host } from "./host.js";
 
 export interface Card {
@@ -42,12 +43,11 @@ async function listAll(bookId: string, userId?: string): Promise<WorldBookEntryD
 
 const metaOf = (b: { metadata?: unknown }) => ((b.metadata as { warp?: Record<string, unknown> } | undefined)?.warp ?? {});
 
-/** Entries of one book that hold rules, as sections in load order; repeated labels get " 2", " 3". */
-function partsOf(entries: { comment: string; content: string; order: number }[]): Part[] {
-  const sorted = [...entries].sort((a, b) => a.order - b.order || a.comment.localeCompare(b.comment));
+/** Entries as sections, in the order given; a repeated label gets " 2", " 3" (older layouts can repeat one). */
+function partsOf(entries: { label: string; content: string }[]): Part[] {
   const out: Part[] = [];
-  for (const e of sorted) {
-    const base = cleanLabel(e.comment);
+  for (const e of entries) {
+    const base = cleanLabel(e.label);
     let label = base;
     for (let n = 2; out.some((p) => p.label === label); n++) label = `${base} ${n}`;
     out.push({ label, yaml: e.content.endsWith("\n") ? e.content : `${e.content}\n` });
@@ -55,7 +55,7 @@ function partsOf(entries: { comment: string; content: string; order: number }[])
   return out;
 }
 
-/** The character, its books with rules, and the sections Warp loads now (the same rules as Warp's source.ts). */
+/** The character, its books with rules, and the sections Warp loads now. */
 export async function readCharacterRules(characterId: string, userId?: string): Promise<CharacterRules | null> {
   const c = await host().characters.get(characterId, userId);
   if (!c) return null;
@@ -66,21 +66,17 @@ export async function readCharacterRules(characterId: string, userId?: string): 
   // A published snapshot supersedes older books without erasing them: the last attached one wins.
   const { books, active } = await attachedRulebooks(c, userId);
   const views: BookView[] = [];
-  const loaded: { comment: string; content: string; order: number }[] = [];
   for (const b of books) {
     const whole = isRulesetBookName(b.name);
-    const entries = (await listAll(b.id, userId)).filter((e) => whole || isRulesetEntryTitle(e.comment));
-    if (!entries.length && !whole) continue;
-    const included = !active || active.id === b.id;
+    const n = (await listAll(b.id, userId)).filter((e) => whole || isRulesetEntryTitle(e.comment)).length;
+    if (!n && !whole) continue;
     const meta = metaOf(b);
     views.push({
-      id: b.id, name: b.name, installed: isInstalledRulebook(b), active: included && entries.length > 0,
-      format: typeof meta.format === "number" ? meta.format : null, by: typeof meta.by === "string" ? meta.by : null,
-      entries: entries.length,
+      id: b.id, name: b.name, installed: isInstalledRulebook(b), active: (!active || active.id === b.id) && n > 0,
+      format: typeof meta.format === "number" ? meta.format : null, by: typeof meta.by === "string" ? meta.by : null, entries: n,
     });
-    if (included) loaded.push(...entries.map((e) => ({ comment: e.comment ?? "", content: e.content ?? "", order: e.order_value ?? 100 })));
   }
-  const parts = partsOf(loaded);
+  const parts = partsOf((await rulesetEntries(characterId, userId)).entries);
   const shown = views.filter((v) => v.active);
   return {
     card,
@@ -98,8 +94,9 @@ export async function readBook(bookId: string, userId?: string): Promise<{ name:
   const b = await host().world_books.get(bookId, userId);
   if (!b) return null;
   const whole = isRulesetBookName(b.name);
-  const entries = (await listAll(b.id, userId)).filter((e) => whole || isRulesetEntryTitle(e.comment));
-  return { name: b.name, parts: partsOf(entries.map((e) => ({ comment: e.comment ?? "", content: e.content ?? "", order: e.order_value ?? 100 }))) };
+  const entries = (await listAll(b.id, userId)).filter((e) => whole || isRulesetEntryTitle(e.comment))
+    .sort((x, y) => (x.order_value ?? 100) - (y.order_value ?? 100));
+  return { name: b.name, parts: partsOf(entries.map((e) => ({ label: labelOf(e.comment ?? ""), content: e.content ?? "" }))) };
 }
 
 /**

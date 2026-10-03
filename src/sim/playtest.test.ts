@@ -60,6 +60,13 @@ describe("the playtest shows Warp's loop simulator", () => {
     expect(rep.gates.some((g) => g.id === "contest-rounds")).toBe(false);
   });
 
+  test("Warp's templates pass every gate", () => {
+    for (const t of TEMPLATES) {
+      const rep = playtestNow(ruleset(t.id), { turns: 20, seeds: 10, contestRuns: 300 });
+      expect({ t: t.id, failed: rep.gates.filter((g) => !g.pass).map((g) => g.id) }).toEqual({ t: t.id, failed: [] });
+    }
+  }, 30_000);
+
   test("Cancel stops it between chunks", async () => {
     const ac = new AbortController();
     const run = playtest(ruleset(adventure), { ...SMALL, seeds: 20 }, { chunk: 5, signal: ac.signal, progress: () => ac.abort() });

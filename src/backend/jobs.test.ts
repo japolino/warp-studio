@@ -34,7 +34,30 @@ async function setup(o: { helper?: (s: string, u: string) => string; delay?: num
   h = fakeHost({ characters: [character({ id: "c1", name: "Mira Vale", description: "A courier." })], helper: o.helper ?? helper, helperDelayMs: o.delay });
   await handle({ type: "settings", patch: { playtestTurns: 5, playtestSeeds: 2 } });
   await handle({ type: "start", characterId: "c1", from: { template: T.id } });
+  // A thin people section: bands as bare words, no voices, no lines.
+  await handle({ type: "edit", characterId: "c1", label: "people", yaml: THIN_PEOPLE });
 }
+
+const THIN_PEOPLE = `relationships:
+  open: true
+  stats:
+    affection:
+      start: 20
+      narrator: 5
+      bands:
+        0: Hostile
+        35: Friendly
+        60: Close
+    trust:
+      start: 20
+      narrator: 5
+      bands:
+        0: Suspicious
+        50: Trusting
+  people:
+    mira_vale:
+      name: "Mira Vale"
+`;
 
 describe("Check in the draft", () => {
   beforeEach(() => setup());

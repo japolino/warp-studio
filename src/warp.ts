@@ -8,7 +8,7 @@ import { RULESET_FORMAT, statAdd, type GameState, type KindDef, type Ruleset } f
 
 export {
   loadRuleset, isRulesetBookName, isRulesetEntryTitle, lintRuleset, REMOVED_KEYS, REMOVED_EFFECT_NAMES, REMOVED_FORMULA_NAMES,
-  RULESET_FORMAT, TOP_LEVEL_KEYS, DIFFICULTIES, TIERS, splitRulebook, joinRulebook, PART_LABELS, PART_CONTENTS, partForIssue,
+  RULESET_FORMAT, TOP_LEVEL_KEYS, DIFFICULTIES, TIERS, splitRulebook, joinRulebook, PART_LABELS, PART_CONTENTS, PART_OF_KEY, partForIssue,
   REFERENCE, DESIGN_GUIDE, TEMPLATES, getTemplate, withCharacter, looksLikeScenario, compile, identifiers, evalBool, initialState,
   makeEnv, d20Odds, buildHud, buildChoices, stateDigest, runLoopSim, createLoopSim, simulateContest, statAdd,
   type RulesetPart, type LoadResult, type Issue, type Ruleset, type StatDef, type Band, type Effect, type ActionDef, type KindDef,
@@ -16,10 +16,8 @@ export {
   type LoopGate, type LoopCheckRow, type LoopContestRow, type ContestSim,
 } from "warp/src/studio-api.js";
 export { odds as actionOdds } from "warp/src/studio-api.js";
-/** Which section each top-level key belongs in. */
-export { PART_OF_KEY } from "warp/src/engine/rulebook.js";
 // Lorebook I/O (host-only: these call the global `spindle`, which is Studio's own API object in its backend).
-export { attachedRulebooks, publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
+export { attachedRulebooks, rulesetEntries, labelOf, publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
 export { STUDIO_FORMAT } from "./shared/format.js";
 
 /** The ruleset format of the pinned engine. */
