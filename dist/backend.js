@@ -45,7 +45,7 @@ var package_default = {
     "js-yaml": "^4.1.0",
     "lumiverse-spindle-types": "0.6.36",
     typescript: "^5.9.0",
-    warp: "github:japolino/warp#a3e42b7262d46ebc9e8b7df0fa986caef76bf590"
+    warp: "github:japolino/warp#e5fc45c4a3b90c2a68c2af728ffb99c09f87e25a"
   }
 };
 
@@ -3529,8 +3529,9 @@ function identifiers(src) {
   return [...out];
 }
 
-// node_modules/warp/src/engine/ruleset.ts
+// node_modules/warp/src/engine/format-version.ts
 var RULESET_FORMAT = 2;
+// node_modules/warp/src/engine/ruleset.ts
 var DIFFICULTIES = ["easy", "fair", "hard", "extreme"];
 var DEFAULT_PRACTICE_REPEAT = { step: 0.5, floor: 0.1, recoverMinutes: 120, recoverTurns: 8 };
 var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -3571,8 +3572,17 @@ class Ctx {
   err(where, message) {
     this.issues.push({ level: "error", where, message });
   }
+  repeats = new Map;
   warn(where, message) {
-    this.issues.push({ level: "warning", where, message });
+    const seen = this.repeats.get(message);
+    if (seen) {
+      seen.more++;
+      seen.issue.message = `${seen.base} (Also in ${seen.more} more place${seen.more === 1 ? "" : "s"}.)`;
+      return;
+    }
+    const issue = { level: "warning", where, message };
+    this.repeats.set(message, { issue, base: message, more: 0 });
+    this.issues.push(issue);
   }
   removed(where, key, what, hint) {
     this.warn(where, `\`${key}:\` (${what}) was removed from Warp, so it's ignored. The old version is on the \`legacy\` branch.${hint ? ` ${hint}` : ""}`);
@@ -4138,7 +4148,7 @@ function normCheck(raw, where, c, style) {
     return;
   }
   if (OLD_CHECK_KEYS.some((k) => raw[k] !== undefined) || raw.style === "pbta" || raw.bands === "pbta" || raw.pbta !== undefined) {
-    c.err(where, "d100 (`chance:`) and PbtA checks were removed from Warp: every check is `{ vs: fair, add: <stat> }` (d20 + the stat vs a difficulty). This check is dropped; the action runs its `effects:` without a roll.");
+    c.warn(where, "d100 (`chance:`) and PbtA checks were removed from Warp, so this check is ignored and the move runs its `effects:` without a roll. The old version is on the `legacy` branch. Use `check: { vs: fair, add: <stat> }` (d20 + the stat vs a difficulty).");
     return;
   }
   const dice = raw.dice ?? raw.roll;
@@ -4610,14 +4620,14 @@ function normLiveChoices(raw, c, known, style) {
     c.warn("Live choices", "has no tags — add some under `tags:`");
   return def;
 }
-var DEFAULT_TAPER = { step: 0.5, floor: 0.25 };
+var DEFAULT_TAPER = { step: 0.75, floor: 0.1 };
 function normTaper(raw, c) {
   if (raw === undefined || raw === true || raw === null)
     return { ...DEFAULT_TAPER };
   if (raw === false)
     return false;
   if (!isObj(raw)) {
-    c.warn("Live choices › taper", "expected `taper: false` or `{ step: 0.5, floor: 0.25 }`");
+    c.warn("Live choices › taper", "expected `taper: false` or `{ step: 0.75, floor: 0.1 }`");
     return { ...DEFAULT_TAPER };
   }
   return {
@@ -8281,22 +8291,22 @@ narration:
       narrator: 4            # at most 4 per reply: no "strangers to in love" in two messages
       bands:
         0:  { text: Cold,    say_down: "{name} has gone cold on you.", voice: "{name} is curt with {{user}}: short answers, no warmth." }
-        10: { text: Neutral, say_down: "{name} has cooled toward you." }
-        25: { text: Warm,    say: "{name} is warming to you.", voice: "{name} relaxes around {{user}}: small jokes, first names." }
-        45: { text: Fond,    say: "{name} is fond of you now.", voice: "{name} seeks {{user}} out and remembers small things they said." }
-        65: { text: Smitten, say: "{name} can't hide how much they like you.", voice: "{name} gets flustered near {{user}} and finds reasons to stay close." }
+        10: { text: Neutral, say: "{name} has thawed a little.", say_down: "{name} has cooled toward you.", voice: "{name} is polite with {{user}}, no more." }
+        25: { text: Warm,    say: "{name} is warming to you.", say_down: "{name} has pulled back a little.", voice: "{name} relaxes around {{user}}: small jokes, first names." }
+        45: { text: Fond,    say: "{name} is fond of you now.", say_down: "{name} is still fond of you, but more careful.", voice: "{name} seeks {{user}} out and remembers small things they said." }
+        65: { text: Smitten, say: "{name} can't hide how much they like you.", say_down: "{name}'s feelings for you have cooled a little.", voice: "{name} gets flustered near {{user}} and finds reasons to stay close." }
         85: { text: In love, say: "{name} has fallen for you.", voice: "{name} is openly tender with {{user}} and puts them first." }
     trust:
       start: 15
       narrator: 4
       bands:
         0:  { text: Guarded,  say_down: "{name} doesn't trust you any more.", voice: "{name} gives nothing personal away and watches {{user}} closely." }
-        20: { text: Wary,     say_down: "{name} is wary of you again." }
-        40: { text: Open,     say: "{name} is starting to open up.", voice: "{name} shares small personal things when asked." }
-        65: { text: Trusting, say: "{name} trusts you.", voice: "{name} asks {{user}} for help and tells the truth even when it costs." }
+        20: { text: Wary,     say: "{name} lets their guard down a little.", say_down: "{name} is wary of you again.", voice: "{name} answers {{user}} but keeps personal things back." }
+        40: { text: Open,     say: "{name} is starting to open up.", say_down: "{name} is more careful with you now.", voice: "{name} shares small personal things when asked." }
+        65: { text: Trusting, say: "{name} trusts you.", say_down: "{name}'s faith in you has been shaken.", voice: "{name} asks {{user}} for help and tells the truth even when it costs." }
         85: { text: Devoted,  say: "{name} would trust you with anything.", voice: "{name} confides fears and secrets without being asked." }
   # For a romance, the builder adds a third stat:
-  # attraction: { start: 0, narrator: 6, good: none, bands: { 0: No spark, 15: Curious, 35: Drawn, 60: Wanting, 85: Consumed } }
+  # attraction: { start: 0, narrator: 6, good: none, bands: { 0: { text: No spark, say_down: "The spark between you and {name} has gone out." }, 15: { text: Curious, say: "{name} is curious about you.", say_down: "{name}'s interest in you has cooled.", voice: "{name} notices {{user}} more than they let on." }, 35: { text: Drawn, say: "{name} is drawn to you.", say_down: "{name} is less drawn to you now.", voice: "{name} lingers near {{user}} and finds small reasons to touch." }, 60: { text: Wanting, say: "{name} wants you, and it shows.", say_down: "{name} has reined in what they feel for you.", voice: "{name} flirts openly with {{user}} when the moment allows." }, 85: { text: Consumed, say: "{name} can't stop thinking about you.", voice: "{name} can barely hide their desire for {{user}}." } } }
   people: {}                 # the card's character is added here on install (name, appearance, outfit)
 
 you: {}                      # name, appearance and outfit are read from the persona and the greeting
@@ -8421,7 +8431,9 @@ checks:
     {
       label: "world",
       yaml: `conditions:
-  exhausted: { label: Exhausted, tone: bad, desc: "Running on empty: -2 to every check.", bonus: { body: -2, mind: -2, charm: -2 } }
+  exhausted: { label: Exhausted,   tone: bad, desc: "Running on empty: -2 to every check.", bonus: { body: -2, mind: -2, charm: -2 } }
+  hurt:      { label: Badly hurt,  tone: bad, desc: "Wounds slow you down: -2 to Body.", bonus: { body: -2 } }
+  low:       { label: Low spirits, tone: bad, desc: "Hard to put on a brave face: -1 to Charm.", bonus: { charm: -1 } }
 `
     },
     {
@@ -8435,17 +8447,17 @@ checks:
       narrator: 5
       bands:
         0:  { text: Hostile,  say_down: "{name} has turned against you.", voice: "{name} is openly hostile to {{user}}." }
-        15: { text: Cool,     say_down: "{name} has cooled on you.", voice: "{name} is polite but distant with {{user}}." }
-        35: { text: Friendly, say: "{name} likes you.", voice: "{name} is easy and friendly with {{user}}." }
-        60: { text: Close,    say: "{name} counts you as a friend now.", voice: "{name} jokes with {{user}}, takes their side, shares plans." }
+        15: { text: Cool,     say: "{name} isn't hostile any more.", say_down: "{name} has cooled on you.", voice: "{name} is polite but distant with {{user}}." }
+        35: { text: Friendly, say: "{name} likes you.", say_down: "{name} has cooled a little, but still likes you.", voice: "{name} is easy and friendly with {{user}}." }
+        60: { text: Close,    say: "{name} counts you as a friend now.", say_down: "{name} is less sure of you than before.", voice: "{name} jokes with {{user}}, takes their side, shares plans." }
         85: { text: Devoted,  say: "{name} would do anything for you.", voice: "{name} puts {{user}} first, even at a cost." }
     trust:
       start: 20
       narrator: 5
       bands:
         0:  { text: Suspicious,  say_down: "{name} doesn't believe a word you say.", voice: "{name} doubts what {{user}} says and checks it." }
-        25: { text: Wary,        say_down: "{name} is wary of you again." }
-        50: { text: Trusting,    say: "{name} trusts you.", voice: "{name} tells {{user}} the truth and asks for help." }
+        25: { text: Wary,        say: "{name} is starting to give you the benefit of the doubt.", say_down: "{name} is wary of you again.", voice: "{name} listens to {{user}} but checks what matters." }
+        50: { text: Trusting,    say: "{name} trusts you.", say_down: "{name} trusts you, but not blindly any more.", voice: "{name} tells {{user}} the truth and asks for help." }
         80: { text: Unshakeable, say: "{name}'s trust in you is unshakeable.", voice: "{name} backs {{user}} without asking why." }
   people: {}                 # the card's character is added here on install
 
@@ -8461,6 +8473,10 @@ you: {}
 triggers:
   exhausted: { when: "energy <= 0", do: { add_condition: [exhausted], hint: "{{user}} is exhausted and struggling to stay upright." } }
   recovered: { when: "energy >= 30", do: { remove_condition: [exhausted] } }
+  hurt:      { when: "health < 25",  do: { add_condition: [hurt], hint: "{{user}} is badly hurt: every physical move costs." } }
+  mended:    { when: "health >= 50", do: { remove_condition: [hurt] } }
+  low:       { when: "mood < 25",    do: { add_condition: [low], hint: "{{user}} is in low spirits and it shows." } }
+  lifted:    { when: "mood >= 50",   do: { remove_condition: [low] } }
 
 live_choices:
   count: 3
@@ -8982,7 +8998,7 @@ function signed(n) {
   const f = formatNumber(n);
   return n > 0 ? `+${f}` : f;
 }
-function summarizeEvents(r, before, after, events) {
+function summarizeEvents(r, before, after, events, lined = new Set) {
   const contest = [];
   const scene = [];
   const rest = [];
@@ -9110,6 +9126,7 @@ function summarizeEvents(r, before, after, events) {
     scene.unshift({ text: m >= 60 ? `⏱ +${formatNumber(m / 60)}h` : `⏱ +${Math.round(m)}m`, tone: "neutral", src: timeAgg.narrIdx.length === timeAgg.idx.length ? "narrator" : "action", ...timeAgg.narrIdx.length ? { undo: timeAgg.narrIdx } : {} });
   }
   const deltas = [];
+  const banded = new Set(lined);
   for (const [key, a] of statAgg) {
     const id = key.split("|")[0];
     const def = r.stats[id];
@@ -9121,11 +9138,14 @@ function summarizeEvents(r, before, after, events) {
     const bBefore = bandFor(def, before.stats[id] ?? def.start, statMax(r, def, before));
     const bAfter = bandFor(def, after.stats[id] ?? def.start, statMax(r, def, after));
     const good = def.good === "none" ? null : d > 0 === (def.good === "high");
+    const band = bAfter && bBefore !== bAfter && !banded.has(id) ? bAfter.text : undefined;
+    if (band)
+      banded.add(id);
     deltas.push({
       text: def.kind === "money" ? `${d > 0 ? "+" : "−"}${formatMoney(r, Math.abs(d))}` : `${def.label} ${signed(d)}`,
       tone: good === null ? "neutral" : good ? "good" : "bad",
       src: a.src,
-      band: bAfter && bBefore !== bAfter ? bAfter.text : undefined,
+      band,
       undo: a.idx
     });
   }
@@ -9162,6 +9182,8 @@ function checkSummary(c) {
   return `d20 ${c.roll}${addTxt} = ${c.total} vs ${c.target}${c.difficulty ? ` (${c.difficulty})` : ""}`;
 }
 function buildRecordView(r, messageId, swipe, rec, before, after) {
+  const crossings = bandCrossings(r, before, after);
+  const lines = crossingLines(crossings);
   return {
     messageId,
     swipe,
@@ -9181,9 +9203,9 @@ function buildRecordView(r, messageId, swipe, rec, before, after) {
       tierLabel: TIER_LABEL[rec.check.tier],
       summary: checkSummary(rec.check)
     } : null,
-    lines: crossingLines(bandCrossings(r, before, after)),
+    lines,
     contest: contestOfRecord(r, rec, before, after),
-    changes: summarizeEvents(r, before, after, rec.events),
+    changes: summarizeEvents(r, before, after, rec.events, new Set(crossings.filter((c) => c.who === null && lines.includes(c.line)).map((c) => c.stat))),
     hints: rec.hints,
     veiled: !!rec.veiled,
     confidence: rec.confidence ?? null,
@@ -9288,7 +9310,7 @@ function stateDigest(r, s, focus) {
   if (s.contest) {
     const c = s.contest;
     const kind = kindOf(r, c.kind);
-    lines.push(`Contest: ${kind.label.toLowerCase()} with ${c.opponent} — round ${c.round + 1}, ${momentumWords(c.momentum, c.opponent)}. Not over until the rules end it.`);
+    lines.push(`Contest: ${kind.label.toLowerCase()} with ${c.opponent} — ${c.round ? `after round ${c.round}` : "just started"}, ${momentumWords(c.momentum, c.opponent)}. Not over until the rules end it.`);
   }
   const recent = (turn) => turn !== undefined && s.turn - turn <= 2;
   const lookMatters = (who) => !nar || s.turn <= 1 || recent(s.look?.[who]?.turn) || who !== "you" && recent(s.scene[who]?.turn) || lookTalk && (who === "you" ? /\b(i|my|me)\b/i.test(ft) : named(personName(r, s, who)));
@@ -9348,12 +9370,14 @@ function stateDigest(r, s, focus) {
     const name = personName(r, s, id);
     return parts.length ? `${name} (${parts.join(", ")})` : name;
   };
-  if (hereIds.length)
-    lines.push(`Relationships (here): ${hereIds.map(feel).join("; ")}.`);
+  const unread = (id) => !s.calibrated[id] && r.relStatOrder.every((rs) => (s.rel[id]?.[rs] ?? r.relStats[rs].start) === r.relStats[rs].start);
+  const felt = hereIds.filter((id) => !unread(id));
+  if (felt.length)
+    lines.push(`Relationships (here): ${felt.map(feel).join("; ")}.`);
   const gated = anyAdultGated(r);
   for (const id of hereIds) {
     const name = personName(r, s, id);
-    const voice = voiceLine(r, s, id);
+    const voice = unread(id) ? null : voiceLine(r, s, id);
     if (voice)
       lines.push(voice);
     const mem = (s.memories?.[id] ?? []).slice(-3).map((m) => `${m.text}${r.clock.enabled ? ` (${agoWords(s.minutes - m.at)})` : ""}`);
