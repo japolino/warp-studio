@@ -132,7 +132,8 @@ function checkPane(m: StudioModel, v: StudioView, d: DraftView): string {
   const showThin = m.settings?.settings.showThin !== false;
   const shown = c.findings.filter((f) => showThin || f.severity !== "thin");
   const hidden = c.findings.length - shown.length;
-  const deepenable = c.findings.some((f) => !f.waived && f.severity !== "balance");
+  // Deepen works on open gaps and thin spots, and rebuilds parts Warp no longer runs (the banner).
+  const deepenable = c.findings.some((f) => !f.waived && f.severity !== "balance") || !!d.banner;
   const rows = shown.map((f) => {
     const waiving = m.ui.waiving === f.id;
     const actions = f.waived

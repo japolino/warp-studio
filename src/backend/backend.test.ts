@@ -110,7 +110,7 @@ describe("opening and starting a draft", () => {
     await handle({ type: "import", characterId: "c1", text: legacy, name: "old.yaml" });
     const v = last();
     expect(v.draft?.base).toEqual({ kind: "import", name: "old.yaml" });
-    expect(v.draft?.banner).toMatch(/^This rulebook uses \d+ parts Warp no longer runs/);
+    expect(v.draft?.banner).toMatch(/^This rulebook uses 6 parts Warp no longer runs \(perks, weather, fronts…\)\. They are ignored\. Deepen can rebuild them as conflict kinds and goals\.$/);
     expect(v.draft?.warnings).toBeGreaterThan(0);
     expect(h.writes).toEqual([]);
   });

@@ -158,7 +158,7 @@ function draftView(l: Live): DraftView | null {
     errors: c.errors,
     warnings: c.warnings,
     legacy: c.legacy,
-    banner: legacyBanner(c.legacy),
+    banner: legacyBanner(c.legacy, { deepen: true }),
     changed: !sameParts(d.parts, l.rules?.parts ?? []),
     installBlock: installBlock(c, d.parts),
     preview,
