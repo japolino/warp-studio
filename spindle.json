@@ -1,0 +1,18 @@
+{
+  "version": "0.1.0",
+  "name": "Warp Studio",
+  "identifier": "warp_studio",
+  "author": "japolino",
+  "github": "https://github.com/japolino/warp-studio",
+  "homepage": "https://github.com/japolino/warp-studio",
+  "description": "Creator tools for Warp rulesets: check what is thin in the 6 core systems, playtest the loop, deepen with AI, import and export rulebooks, and a rulebook CLI/MCP server for outside agents. Works on a character's warp-ruleset lorebook.",
+  "permissions": [
+    "generation",
+    "characters",
+    "world_books",
+    "ui_panels"
+  ],
+  "entry_backend": "dist/backend.js",
+  "entry_frontend": "dist/frontend.js",
+  "minimum_lumiverse_version": "0.1.0"
+}
