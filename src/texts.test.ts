@@ -13,11 +13,23 @@ import { INSTRUCTIONS, TOOLS } from "./tools/mcp.js";
 import { USAGE } from "./tools/commands.js";
 import { workflowText } from "./tools/rulebook-tools.js";
 import { checkParts, fromText } from "./rulebook/workspace.js";
-import { REMOVED_EFFECT_NAMES, REMOVED_KEYS } from "./warp.js";
+import { auditRuleset } from "./audit/audit.js";
+import { REMOVED_EFFECT_NAMES, REMOVED_FORMULA_NAMES, REMOVED_KEYS, TEMPLATES } from "./warp.js";
+import { fromTemplate } from "./rulebook/workspace.js";
 
 const file = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
+/** Every finding's text and fix, from the fixtures and the templates. */
+function findingTexts(): string {
+  const rulesets = [
+    ...["dead-parts.yaml", "thin-story.yaml", "balance.yaml"].map((n) => checkParts(fromText(file(`src/fixtures/${n}`))).ruleset!),
+    ...TEMPLATES.map((x) => checkParts(fromTemplate(x.id, { name: "Mira" })!).ruleset!),
+  ];
+  return [...new Set(rulesets.flatMap((r) => auditRuleset(r).findings.flatMap((f) => [f.text, f.fix])))].join("\n");
+}
+
 const TEXTS: Record<string, string> = {
+  "Check findings": findingTexts(),
   workflow: workflowText(),
   "skills/warp-rulebook/SKILL.md": file("skills/warp-rulebook/SKILL.md"),
   "README.md": file("README.md"),
@@ -35,7 +47,9 @@ const yamlBlocks = (text: string) => [...text.matchAll(/```ya?ml\n([\s\S]*?)```/
 /** Removed keys the prose names as keys: `quests:` in backticks, or a top-level `quests:` line outside code blocks. */
 function namedRemoved(text: string): string[] {
   const prose = text.replace(/```[\s\S]*?```/g, "");
-  return removed.filter((k) => text.includes(`\`${k}:`) || new RegExp(`^${k}:`, "m").test(prose));
+  const keys = removed.filter((k) => text.includes(`\`${k}:`) || new RegExp(`^${k}:`, "m").test(prose));
+  const formulas = REMOVED_FORMULA_NAMES.filter((f) => new RegExp(`\\b${f}\\(\\s*'`).test(text)).map((f) => `${f}()`);
+  return [...keys, ...formulas];
 }
 
 describe("Studio's texts never suggest a removed system", () => {
@@ -53,5 +67,6 @@ describe("Studio's texts never suggest a removed system", () => {
     expect(namedRemoved("Add `perks:` to reward play.")).toEqual(["perks"]);
     expect(namedRemoved("Then:\nperks:\n  tough: {}\n")).toEqual(["perks"]);
     expect(namedRemoved("stats:\n  body: { kind: attribute }\nPerks are gone; a body stat is fine.")).toEqual([]);
+    expect(namedRemoved("Read wearing('coat') in a when.")).toEqual(["wearing()"]);
   });
 });
