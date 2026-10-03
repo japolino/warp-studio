@@ -8,15 +8,21 @@ builds a small ruleset in one pass and can refine it. Studio is for people who w
 
 - **Edit** a character's rules as a draft, one card per section, with Warp's own checker on every save.
 - **Start** from the installed rules, from one of Warp's templates, from an older book (a backup), or from a file.
-- **Import and export** a whole rulebook as one YAML file, to share it or to edit it with another tool.
+- **Check**: a score for each of Warp's 6 core systems (Scene, People, Checks, Choices, Conflict, Growth) and a list
+  of findings: *gaps* (declared, but it can never matter), *thin spots* (it works, but feels flat) and *balance*
+  (odds, drift, rules that fire on turn one, contests the player can't win). Each finding says how to fix it.
+  **Fix** asks the helper model to fix one finding; **Leave as is** keeps it on purpose, with a reason.
+- **Playtest**: Warp's whole-loop simulator plays the draft with scripted players and a fake narrator (no model, no
+  cost). Studio shows Warp's quality gates exactly as Warp computes them, the greedy player's tag share, the odds of
+  each checked tag per difficulty word, and a contest table per kind.
+- **Deepen**: the helper rewrites every section with open gaps or thin spots, in parallel, at most 12 calls. A rewrite
+  is kept only if it has no errors, no score goes down and no gate that passed now fails. You review a diff per
+  section and accept all, some or none.
+- **Import and export** a whole rulebook as one YAML file, to share it or to edit it with another tool. A rulebook in
+  Warp's old format loads with a banner; Deepen can rebuild its old parts as conflict kinds and goals.
 - **Install** publishes the draft as a new `warp-ruleset` book: complete, checked again after saving, attached to the
   character. The old book stays attached as a backup.
-- **Preview** what the player sees at the start and what the narrator is told.
-- **`warp-rulebook`** CLI and MCP server: the guide, the templates, the checker and the preview, for agents.
-
-Coming next (they need Warp's new ruleset format): **Check** (coverage of Warp's 6 core systems and balance, with
-**Fix** for one finding), **Playtest** (Warp's whole-loop simulator and its quality gates, a contest table) and
-**Deepen** (a bounded rewrite with the helper model, at most 12 calls, reviewed before anything is kept).
+- **`warp-rulebook`** CLI and MCP server: the guide, the templates, Check, the loop simulator and the preview, for agents.
 
 Studio works without Warp installed: it writes the book, and Warp reads it once it is installed.
 
@@ -30,7 +36,7 @@ Studio works without Warp installed: it writes the book, and Warp reads it once 
 |---|---|
 | `characters` | Reading the card (name, description, attached books) and attaching the new book on Install |
 | `world_books` | Reading the `warp-ruleset` book and publishing a new one |
-| `generation` | The helper model for Fix and Deepen, and the list of connections in Settings. Everything else works without it |
+| `generation` | The helper model for Fix and Deepen, and the list of connections in Settings. Check, Playtest, import, export and Install work without it |
 | `ui_panels` | The **Warp Studio** drawer tab and the tab in the character editor |
 
 ## Use it
@@ -42,10 +48,15 @@ Studio works without Warp installed: it writes the book, and Warp reads it once 
    **Import a rulebook** (paste it or choose a file).
 4. Edit the sections. **Save and check** runs Warp's checker; problems show on the section they come from. An
    empty section is removed on save.
-5. **Install**. It is refused while a section has errors, and when the Warp in this window reads an older ruleset
+5. **Check** lists what is thin, system by system. Use **Fix** on one finding, **Leave as is** for what you want
+   that way, or **Deepen** for all of it. A Fix or Deepen result opens in **Review**: nothing changes in the draft
+   until you accept it. Cancel stops a running job.
+6. **Playtest** runs Warp's loop simulator (size in Settings, 30 turns × 20 seeds by default). Run it again after
+   changes; an old result says it is stale.
+7. **Install**. It is refused while a section has errors, and when the Warp in this window reads an older ruleset
    format than Studio writes (update Warp first). Open chats with this character ask once whether to keep their
    history, because the rules changed. Warp reads the new book within a few seconds (or use "Warp: Reload ruleset").
-6. **Export** the draft or the installed rules as one file (copy it, or save it as `<name>.warp.yaml`).
+8. **Export** the draft or the installed rules as one file (copy it, or save it as `<name>.warp.yaml`).
 
 Drafts are saved per character in Studio's own storage. Nothing reaches the lorebook until Install.
 
@@ -57,7 +68,8 @@ For writing a ruleset outside Lumiverse, by hand or with an agent. It needs Node
 npx -y github:japolino/warp-studio guide              # the authoring guide (workflow, format, design)
 npx -y github:japolino/warp-studio templates          # the starting templates
 npx -y github:japolino/warp-studio template <id> > rulebook.yaml
-npx -y github:japolino/warp-studio check rulebook.yaml    # exit 1 on errors
+npx -y github:japolino/warp-studio check rulebook.yaml    # lint + coverage of the 6 core systems; exit 1 on errors
+npx -y github:japolino/warp-studio simulate rulebook.yaml # Warp's loop simulator; exit 1 if a gate fails
 npx -y github:japolino/warp-studio preview rulebook.yaml
 npx -y github:japolino/warp-studio --version
 ```
@@ -83,7 +95,11 @@ About line in Studio's settings show it.
 
 | Warp Studio | Ruleset format | Warp engine |
 |---|---|---|
-| 0.1.0 (in development) | 1 (Warp before the new format) | `warp#8f61ee9` |
+| 0.1.0 | 2 | `warp#67fc280` |
+
+A test fails when Warp's ruleset format is not the one Studio is written for. At run time, Studio asks the Warp in the
+same window which format it reads (`rulesetFormat` in Warp's `warp-state-v1` event) and refuses to install for an
+older Warp. Every book Studio installs is stamped with the format and `warp_studio@<version>`.
 
 ## Development
 
