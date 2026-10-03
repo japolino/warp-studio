@@ -19,7 +19,7 @@ export { odds as actionOdds } from "warp/src/studio-api.js";
 /** Which section each top-level key belongs in. */
 export { PART_OF_KEY } from "warp/src/engine/rulebook.js";
 // Lorebook I/O (host-only: these call the global `spindle`, which is Studio's own API object in its backend).
-export { publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
+export { attachedRulebooks, publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
 export { STUDIO_FORMAT } from "./shared/format.js";
 
 /** The ruleset format of the pinned engine. */

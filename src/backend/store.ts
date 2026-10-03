@@ -1,16 +1,15 @@
 // The character's warp-ruleset lorebook: read exactly what Warp loads, and
 // publish a new complete snapshot on Install.
 //
-// TODO(Warp ask A4): the read half below (attached books, the active snapshot,
-// entry labels) mirrors Warp's `attachedRulebooks` (backend/source.ts) and
-// `rulesetEntries` + `labelOf` (backend/builder.ts). When Warp exports them from
-// backend/rulebook-install.ts, import them through src/warp.ts and delete the
-// copies here. Publishing already uses Warp's own `publishRulebook`.
+// Which book Warp reads is Warp's own `attachedRulebooks`; publishing is Warp's
+// own `publishRulebook`. TODO(Warp step 4): the entry listing and labels below
+// mirror Warp's `rulesetEntries` + `labelOf` (backend/builder.ts); when they move
+// to backend/rulebook-install.ts, import them through src/warp.ts instead.
 
-import type { WorldBookDTO, WorldBookEntryDTO } from "lumiverse-spindle-types";
+import type { WorldBookEntryDTO } from "lumiverse-spindle-types";
 import { cleanLabel, type Part } from "../rulebook/workspace.js";
 import type { BookView, CharacterView } from "../shared/protocol.js";
-import { isInstalledRulebook, isRulesetBookName, isRulesetEntryTitle, publishRulebook, STAMP } from "../warp.js";
+import { attachedRulebooks, isInstalledRulebook, isRulesetBookName, isRulesetEntryTitle, publishRulebook, STAMP } from "../warp.js";
 import { host } from "./host.js";
 
 export interface Card {
@@ -64,10 +63,8 @@ export async function readCharacterRules(characterId: string, userId?: string): 
     id: c.id, name: c.name ?? "", description: c.description ?? "", personality: c.personality ?? "", scenario: c.scenario ?? "",
     first_mes: c.first_mes ?? "", creator_notes: c.creator_notes ?? "", tags: c.tags ?? [],
   };
-  const books = (await Promise.all((c.world_book_ids ?? []).map((id) => host().world_books.get(id, userId).catch(() => null))))
-    .filter((b): b is WorldBookDTO => !!b);
   // A published snapshot supersedes older books without erasing them: the last attached one wins.
-  const active = [...books].reverse().find((b) => isRulesetBookName(b.name) && isInstalledRulebook(b)) ?? null;
+  const { books, active } = await attachedRulebooks(c, userId);
   const views: BookView[] = [];
   const loaded: { comment: string; content: string; order: number }[] = [];
   for (const b of books) {
