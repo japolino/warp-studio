@@ -82,4 +82,41 @@ export const STYLES = `
 .ws-toggle { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; cursor: pointer; }
 .ws-toggle small { grid-column: 1; color: var(--ws-dim); }
 .ws-toggle input { grid-row: 1 / span 2; grid-column: 2; accent-color: var(--ws-accent); width: 16px; height: 16px; }
+.ws-field .ws-input[type=number] { width: 90px; }
+
+/* Check: one bar per core system, then the findings. */
+.ws-systems, .ws-shares { display: flex; flex-direction: column; gap: 4px; }
+.ws-sys { display: grid; grid-template-columns: 90px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; }
+.ws-sys b { text-align: right; font-variant-numeric: tabular-nums; }
+.ws-sys-off { color: var(--ws-dim); }
+.ws-bar { height: 6px; border-radius: 3px; background: var(--ws-fill); overflow: hidden; }
+.ws-bar i { display: block; height: 100%; border-radius: 3px; }
+.ws-fill-good { background: var(--ws-good); }
+.ws-fill-warn { background: var(--ws-warn); }
+.ws-fill-bad { background: var(--ws-bad); }
+.ws-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ws-finding { border-left: 3px solid var(--ws-border); padding: 4px 8px; display: flex; flex-direction: column; gap: 3px; }
+.ws-finding p { margin: 0; }
+.ws-sev-gap { border-left-color: var(--ws-bad); }
+.ws-sev-thin, .ws-sev-balance { border-left-color: var(--ws-warn); }
+.ws-waived { opacity: .65; }
+.ws-finding .ws-input { flex: 1; width: auto; }
+
+/* Playtest: Warp's gates and the tables. */
+.ws-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ws-table th, .ws-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--ws-border); }
+.ws-table th { color: var(--ws-dim); font-weight: 500; }
+.ws-pass td:first-child { color: var(--ws-good); }
+.ws-fail td:first-child, .ws-fail td:nth-child(3) { color: var(--ws-bad); }
+.ws-best { background: var(--ws-fill); font-weight: 600; }
+.ws-progress { flex: 1; max-width: 220px; height: 8px; border-radius: 4px; background: var(--ws-fill); overflow: hidden; }
+.ws-progress i { display: block; height: 100%; background: var(--ws-accent); transition: width .2s; }
+
+/* Review: what a rewrite changes. */
+.ws-diff { margin: 6px 0 0; padding: 6px 8px; background: var(--ws-fill); border-radius: 6px; font-size: 11.5px; line-height: 1.45; overflow-x: auto; white-space: pre; }
+.ws-diff-add { color: var(--ws-good); }
+.ws-diff-del { color: var(--ws-bad); text-decoration: line-through; text-decoration-color: rgba(224,108,108,.5); }
+.ws-diff-ctx { color: var(--ws-dim); }
+.ws-review-dropped { opacity: .7; }
+.ws-part > summary input[type=checkbox] { accent-color: var(--ws-accent); }
 `;

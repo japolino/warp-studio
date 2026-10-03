@@ -8,7 +8,7 @@ import { STUDIO_FORMAT } from "../shared/format.js";
 import type { DraftView, StudioView } from "../shared/protocol.js";
 import { warpStatus } from "../shared/warp-state.js";
 import { TEMPLATES } from "../warp.js";
-import { baseText, emptyUi, renderStudio, type SettingsMsg, type StudioModel } from "./view.js";
+import { baseText, emptyUi, esc, renderStudio, type SettingsMsg, type StudioModel } from "./view.js";
 
 const T = TEMPLATES[0];
 const ok = warpStatus({ present: true, format: STUDIO_FORMAT }, STUDIO_FORMAT);
@@ -28,7 +28,7 @@ async function real(o: { rules?: boolean; start?: boolean } = {}): Promise<{ h: 
 }
 
 function model(o: Partial<StudioModel>): StudioModel {
-  return { mode: "drawer", characterId: "c1", view: null, settings: null, warp: ok, exported: null, characters: null, picked: false, ui: emptyUi(), ...o };
+  return { mode: "drawer", characterId: "c1", view: null, settings: null, warp: ok, exported: null, characters: null, picked: false, progress: null, ui: emptyUi(), ...o };
 }
 
 describe("who Studio is editing", () => {
@@ -132,6 +132,90 @@ describe("a draft", () => {
   });
 });
 
+describe("Check, Playtest and Review", () => {
+  test("the Check pane: six bars, findings with Fix and Leave as is, Deepen", async () => {
+    const { view, settings } = await real({ start: true });
+    const ui = { ...emptyUi(), pane: "check" as const };
+    const html = renderStudio(model({ view, settings, ui }));
+    for (const s of ["Scene", "People", "Checks", "Choices", "Conflict", "Growth"]) expect(html).toContain(`<span>${s}</span>`);
+    const f = view.draft!.check!.findings[0];
+    expect(html).toContain(`data-ws="fix" data-finding="${f.id}"`);
+    expect(html).toContain(`data-ws="waive-open" data-finding="${f.id}"`);
+    expect(html).toMatch(/data-ws="deepen"(?![^>]*disabled)/);
+    // Without generation, Fix and Deepen are off.
+    expect(renderStudio(model({ view, settings: { ...settings, canGenerate: false }, ui }))).toMatch(/data-ws="deepen"[^>]*disabled/);
+    // Typing a reason.
+    const waiving = renderStudio(model({ view, settings, ui: { ...ui, waiving: f.id, waiveText: "on <purpose>" } }));
+    expect(waiving).toContain('value="on &lt;purpose&gt;"');
+    expect(waiving).toContain(`data-ws="waive" data-finding="${f.id}"`);
+  });
+
+  test("thin spots can be hidden; a waived finding shows its reason and Undo", async () => {
+    const { view, settings } = await real({ start: true });
+    const ui = { ...emptyUi(), pane: "check" as const };
+    const thin = view.draft!.check!.findings.filter((f) => f.severity === "thin").length;
+    expect(thin).toBeGreaterThan(0);
+    const hidden = renderStudio(model({ view, settings: { ...settings, settings: { ...settings.settings, showThin: false } }, ui }));
+    expect(hidden).toContain(`${thin} thin spot`);
+    const f = view.draft!.check!.findings[0];
+    const waived: StudioView = { ...view, draft: { ...view.draft!, check: { ...view.draft!.check!, findings: view.draft!.check!.findings.map((x) => (x.id === f.id ? { ...x, waived: "kept on purpose" } : x)) } } };
+    const html = renderStudio(model({ view: waived, settings, ui }));
+    expect(html).toContain("Left as is: kept on purpose");
+    expect(html).toContain(`data-ws="unwaive" data-finding="${f.id}"`);
+  });
+
+  test("a story shows Checks and Conflict as not used", async () => {
+    const { view, settings } = await real({ start: true });
+    const check = { ...view.draft!.check!, style: "story" as const, systems: view.draft!.check!.systems.map((s) => (s.id === "checks" || s.id === "conflict" ? { ...s, score: null } : s)) };
+    const html = renderStudio(model({ view: { ...view, draft: { ...view.draft!, check } }, settings, ui: { ...emptyUi(), pane: "check" } }));
+    expect(html.match(/not used/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(html).toContain("A story doesn't roll");
+  });
+
+  test("the Playtest pane: Run, progress with Cancel, then Warp's gates and the tables", async () => {
+    const { h, view, settings } = await real({ start: true });
+    const ui = { ...emptyUi(), pane: "playtest" as const };
+    expect(renderStudio(model({ view, settings, ui }))).toContain("No playtest yet.");
+    expect(renderStudio(model({ view, settings, ui }))).toContain(`Run ${settings.settings.playtestTurns} turns × ${settings.settings.playtestSeeds} seeds`);
+    const running = renderStudio(model({ view: { ...view, busy: "Playtest…", cancellable: true }, settings, ui, progress: 0.4 }));
+    expect(running).toContain('class="ws-progress"><i style="width:40%">');
+    expect(running).toContain('data-ws="cancel"');
+    await handle({ type: "settings", patch: { playtestTurns: 5, playtestSeeds: 1 } });
+    await handle({ type: "playtest", characterId: "c1" });
+    const done = (h.of<{ type: string; view: StudioView }>("studio").at(-1)!).view;
+    const html = renderStudio(model({ view: done, settings, ui }));
+    expect(html).toContain("<h4>Warp's gates</h4>");
+    for (const g of done.draft!.playtest!.report.gates) expect(html).toContain(esc(g.label));
+    if (done.draft!.playtest!.report.contests.length) expect(html).toContain('class="ws-best"');
+    const stale = renderStudio(model({ view: { ...done, draft: { ...done.draft!, playtest: { ...done.draft!.playtest!, stale: true } } }, settings, ui }));
+    expect(stale).toContain("The draft changed since this run.");
+  });
+
+  test("the Review pane: kept sections ticked with their diff, dropped ones with the reason", async () => {
+    const { view, settings } = await real({ start: true });
+    const proposal = {
+      kind: "deepen" as const, calls: 4, at: 1,
+      scores: { before: { People: 50 }, after: { People: 90 } },
+      gates: { before: [{ id: "g", label: "Tag share", pass: false }], after: [{ id: "g", label: "Tag share", pass: true }] },
+      sections: [
+        { label: "people", kept: true, reason: null, summary: "voices on every band", diff: [{ op: " " as const, text: "relationships:" }, { op: "+" as const, text: "  <voice>" }], added: 1, removed: 0 },
+        { label: "story", kept: false, reason: 'the rewrite of "story" lowers Choices 90 → 80', summary: null, diff: [], added: 0, removed: 0 },
+      ],
+    };
+    const v: StudioView = { ...view, draft: { ...view.draft!, proposal } };
+    const html = renderStudio(model({ view: v, settings, ui: { ...emptyUi(), pane: "review" } }));
+    expect(html).toContain("Review ●");
+    expect(html).toContain('data-ws-pick-section value="people" checked');
+    expect(html).toContain('<span class="ws-diff-add">+   &lt;voice&gt;</span>');
+    expect(html).toContain("dropped: the rewrite of &quot;story&quot; lowers Choices 90 → 80");
+    expect(html).toContain("People 50 → 90");
+    expect(html).toContain("✓ Tag share");
+    expect(html).toContain('data-ws="review-some"');
+    // Without a proposal the review tab is gone and the sections show.
+    expect(renderStudio(model({ view, settings, ui: { ...emptyUi(), pane: "review" } }))).toContain("✓ Loads and lints clean.");
+  });
+});
+
 describe("export and settings", () => {
   test("the export box", async () => {
     const { view, settings } = await real({ rules: true });
@@ -146,6 +230,8 @@ describe("export and settings", () => {
     let html = renderStudio(model({ view, settings }));
     expect(html).toContain('<option value="fast">Fast helper</option>');
     expect(html).toContain('data-setting="creative"');
+    expect(html).toContain('data-setting="playtestTurns"');
+    expect(html).toContain('data-setting="showThin" checked');
     expect(html).toContain(settings.about);
     html = renderStudio(model({ view, settings: { ...settings, canGenerate: false } }));
     expect(html).toContain("no generation permission");

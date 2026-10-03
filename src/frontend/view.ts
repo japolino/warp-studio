@@ -1,7 +1,7 @@
 // Studio's screens as HTML strings. Pure (no DOM), so tests render them
 // directly. The controller (frontend.ts) owns the typed-but-unsaved text.
 
-import type { BackendToFrontend, BookView, DraftBase, DraftView, IssueView, PartView, SectionInfo, StudioView } from "../shared/protocol.js";
+import type { BackendToFrontend, BookView, CheckView, DraftBase, DraftView, IssueView, PartView, PlaytestReport, ProposalView, SectionInfo, StudioView } from "../shared/protocol.js";
 import type { WarpStatus } from "../shared/warp-state.js";
 
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -9,8 +9,10 @@ export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
 export type SettingsMsg = Extract<BackendToFrontend, { type: "settings" }>;
 
 /** Per-root screen state the backend doesn't know about. */
+export type Pane = "sections" | "check" | "playtest" | "preview" | "review";
+
 export interface RootUi {
-  pane: "sections" | "preview";
+  pane: Pane;
   /** Section text typed but not saved yet, by label. */
   unsaved: Record<string, string>;
   importText: string;
@@ -21,10 +23,13 @@ export interface RootUi {
   confirmDiscard: boolean;
   /** The character list is shown (drawer only). */
   picking: boolean;
+  /** The finding whose "Leave as is" reason is being typed, and the text so far. */
+  waiving: string | null;
+  waiveText: string;
 }
 
 export function emptyUi(): RootUi {
-  return { pane: "sections", unsaved: {}, importText: "", importName: null, showStart: false, confirmDiscard: false, picking: false };
+  return { pane: "sections", unsaved: {}, importText: "", importName: null, showStart: false, confirmDiscard: false, picking: false, waiving: null, waiveText: "" };
 }
 
 export interface StudioModel {
@@ -38,6 +43,8 @@ export interface StudioModel {
   characters: { id: string; name: string }[] | null;
   /** The drawer shows a picked character instead of the chat's. */
   picked: boolean;
+  /** A running Playtest's progress (0–1), or null. */
+  progress: number | null;
   ui: RootUi;
 }
 
@@ -107,6 +114,88 @@ function previewPane(d: DraftView): string {
 </div>`;
 }
 
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+function systemBars(c: CheckView): string {
+  return `<div class="ws-systems">${c.systems.map((s) => s.score === null
+    ? `<div class="ws-sys ws-sys-off"><span>${esc(s.label)}</span><div class="ws-bar"></div><b>not used</b></div>`
+    : `<div class="ws-sys"><span>${esc(s.label)}</span><div class="ws-bar"><i class="${s.score >= 80 ? "ws-fill-good" : s.score >= 50 ? "ws-fill-warn" : "ws-fill-bad"}" style="width:${s.score}%"></i></div><b>${s.score}</b></div>`).join("")}</div>`;
+}
+
+const SEVERITY: Record<string, string> = { gap: "gap", thin: "thin", balance: "balance" };
+
+function checkPane(m: StudioModel, v: StudioView, d: DraftView): string {
+  const c = d.check;
+  if (!c) return `<p class="ws-dim">Check runs once the draft loads without errors. Fix the sections marked in red first.</p>`;
+  const busy = !!v.busy;
+  const canGenerate = m.settings?.canGenerate !== false;
+  const showThin = m.settings?.settings.showThin !== false;
+  const shown = c.findings.filter((f) => showThin || f.severity !== "thin");
+  const hidden = c.findings.length - shown.length;
+  const deepenable = c.findings.some((f) => !f.waived && f.severity !== "balance");
+  const rows = shown.map((f) => {
+    const waiving = m.ui.waiving === f.id;
+    const actions = f.waived
+      ? `<span class="ws-dim">Left as is: ${esc(f.waived)}</span>${btn("unwaive", "Undo", { ghost: true, data: { finding: f.id } })}`
+      : waiving
+        ? `<input class="ws-input" data-ws-waive-text placeholder="Why it stays as it is (8 characters or more)" value="${esc(m.ui.waiveText)}">${btn("waive", "Leave as is", { data: { finding: f.id } })}${btn("waive-cancel", "Cancel", { ghost: true })}`
+        : `${btn("fix", "Fix", { disabled: busy || !canGenerate, title: canGenerate ? "One helper call (at most 3 with repairs); you review the result" : "Studio may not use a model", data: { finding: f.id } })}${btn("waive-open", "Leave as is", { ghost: true, data: { finding: f.id } })}`;
+    return `<li class="ws-finding ws-sev-${SEVERITY[f.severity]}${f.waived ? " ws-waived" : ""}">
+  <div class="ws-row"><span class="ws-chip ws-chip-${f.severity === "gap" ? "error" : "warn"}">${esc(f.severity)}</span><span class="ws-dim">${esc(f.system)} · ${esc(f.part)}</span></div>
+  <p>${esc(f.text)}</p><p class="ws-dim">Fix: ${esc(f.fix)}</p>
+  <div class="ws-row">${actions}</div>
+</li>`;
+  }).join("");
+  return `${systemBars(c)}
+  ${c.style === "story" ? `<p class="ws-dim">A story doesn't roll: Checks and Conflict are not used.</p>` : ""}
+  <div class="ws-row ws-spread"><span>${c.open ? `${plural(c.open, "open finding")}` : "✓ Nothing open."}${hidden ? ` <span class="ws-dim">(${plural(hidden, "thin spot")} hidden in Settings)</span>` : ""}</span>
+  ${btn("deepen", "Deepen", { primary: true, disabled: busy || !canGenerate || !deepenable, title: "Rewrite every section with open gaps or thin spots (at most 12 helper calls); you review the result" })}</div>
+  ${rows ? `<ul class="ws-findings">${rows}</ul>` : ""}`;
+}
+
+function gateRows(rep: PlaytestReport): string {
+  return `<table class="ws-table"><tbody>${rep.gates.map((g) => `<tr class="${g.pass ? "ws-pass" : "ws-fail"}"><td>${g.pass ? "✓" : "✕"}</td><td>${esc(g.label)}</td><td>${esc(Number.isInteger(g.value) ? g.value : g.value.toFixed(2))}</td><td class="ws-dim">${esc(g.bar)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function playtestReport(rep: PlaytestReport): string {
+  const share = rep.tagShare.length ? `<h4>Tag share (a greedy player)</h4><div class="ws-shares">${rep.tagShare.map((t) => `<div class="ws-sys"><span>${esc(t.tag)}</span><div class="ws-bar"><i class="${t.share > 0.5 ? "ws-fill-bad" : "ws-fill-good"}" style="width:${Math.round(t.share * 100)}%"></i></div><b>${pct(t.share)}</b></div>`).join("")}</div>` : "";
+  const words = ["easy", "fair", "hard", "extreme"];
+  const odds = rep.odds.length ? `<h4>Odds at the start</h4><table class="ws-table"><thead><tr><th></th>${words.map((w) => `<th>${w}</th>`).join("")}</tr></thead><tbody>${rep.odds.map((o) => `<tr><td>${esc(o.tag)}</td>${o.cells.map((c) => `<td>${c.pct}%</td>`).join("")}</tr>`).join("")}</tbody></table>` : "";
+  const contests = rep.contests.map((c) => `<h4>${esc(c.label)}: win % · mean rounds</h4><table class="ws-table"><thead><tr><th>add</th>${words.map((w) => `<th>${w}</th>`).join("")}</tr></thead><tbody>${c.rows.map((row) => `<tr${row.add === c.best ? ` class="ws-best" title="The player's best start stat for this kind"` : ""}><td>+${row.add}</td>${row.cells.map((x) => `<td>${pct(x.won)} · ${x.meanRounds.toFixed(1)}</td>`).join("")}</tr>`).join("")}</tbody></table>`).join("");
+  return `<p class="${rep.pass ? "ws-good" : "ws-bad"}">${rep.pass ? "✓ Every gate passes." : `✕ ${plural(rep.gates.filter((g) => !g.pass).length, "gate")} fail${rep.gates.filter((g) => !g.pass).length === 1 ? "s" : ""}.`} <span class="ws-dim">${rep.turns} turns × ${rep.seeds} seeds per player policy.</span></p>
+  <h4>Warp's gates</h4>${gateRows(rep)}${share}${odds}${contests}`;
+}
+
+function playtestPane(m: StudioModel, v: StudioView, d: DraftView): string {
+  const busy = !!v.busy;
+  const s = m.settings?.settings;
+  const size = s ? `${s.playtestTurns} turns × ${s.playtestSeeds} seeds` : "";
+  const running = m.progress !== null && !!v.busy;
+  const head = `<div class="ws-row ws-spread"><p class="ws-dim">Warp's own loop simulator plays the draft with scripted players and a fake narrator. No model, no cost.</p>
+  ${running ? `<div class="ws-progress"><i style="width:${Math.round((m.progress ?? 0) * 100)}%"></i></div>` : btn("playtest", `Run ${size}`.trim(), { primary: true, disabled: busy || !d.check })}</div>`;
+  if (!d.check) return `${head}<p class="ws-dim">The playtest runs once the draft loads without errors.</p>`;
+  if (!d.playtest) return `${head}<p class="ws-dim">No playtest yet.</p>`;
+  return `${head}${d.playtest.stale ? `<p class="ws-warn">The draft changed since this run. Run it again to see the new numbers.</p>` : ""}${playtestReport(d.playtest.report)}`;
+}
+
+function reviewPane(p: ProposalView, busy: boolean): string {
+  const scoreChanges = Object.keys({ ...p.scores.before, ...p.scores.after })
+    .filter((k) => p.scores.before[k] !== p.scores.after[k])
+    .map((k) => `${esc(k)} ${p.scores.before[k] ?? "–"} → ${p.scores.after[k] ?? "–"}`);
+  const gateChanges = p.gates.after.filter((g) => p.gates.before.find((b) => b.id === g.id)?.pass !== g.pass)
+    .map((g) => `${g.pass ? "✓" : "✕"} ${esc(g.label)}`);
+  const kept = p.sections.filter((s) => s.kept);
+  const sections = p.sections.map((s) => `<details class="ws-part ws-review-${s.kept ? "kept" : "dropped"}" data-section="review:${esc(s.label)}"${s.kept ? " open" : ""}>
+  <summary>${s.kept ? `<input type="checkbox" data-ws-pick-section value="${esc(s.label)}" checked>` : ""}<span class="ws-part-name">${esc(s.label)}</span><span class="ws-part-what">${esc(s.kept ? s.summary ?? "" : `dropped: ${s.reason ?? ""}`)}</span><span class="ws-chip">+${s.added} −${s.removed}</span></summary>
+  ${s.diff.length ? `<pre class="ws-diff">${s.diff.map((l) => `<span class="ws-diff-${l.op === "+" ? "add" : l.op === "-" ? "del" : "ctx"}">${esc(l.op)} ${esc(l.text)}</span>`).join("\n")}</pre>` : ""}
+</details>`).join("");
+  return `<p><b>${p.kind === "fix" ? "Fix" : "Deepen"}</b> <span class="ws-dim">${plural(p.calls, "helper call")} · ${plural(kept.length, "section")} kept of ${p.sections.length}. Nothing is in the draft until you accept it.</span></p>
+  ${scoreChanges.length ? `<p>Scores: ${scoreChanges.join(" · ")}</p>` : `<p class="ws-dim">No score changed.</p>`}
+  ${gateChanges.length ? `<p>Gates: ${gateChanges.join(" · ")}</p>` : ""}
+  ${sections}
+  <div class="ws-row">${btn("review-some", "Accept the ticked sections", { primary: true, disabled: busy || !kept.length })}${btn("review-all", "Accept all kept", { disabled: busy || !kept.length })}${btn("review-none", "Discard", { ghost: true, disabled: busy })}</div>`;
+}
+
 function installArea(m: StudioModel, v: StudioView, d: DraftView): string {
   const busy = !!v.busy;
   const name = v.character?.name ?? "this character";
@@ -125,10 +214,19 @@ function installArea(m: StudioModel, v: StudioView, d: DraftView): string {
 function draftCard(m: StudioModel, v: StudioView, d: DraftView): string {
   const busy = !!v.busy;
   const sections = m.settings?.sections ?? [];
-  const tabs = (["sections", "preview"] as const).map((p) =>
-    `<button class="ws-tab" data-ws="pane" data-pane="${p}" aria-selected="${m.ui.pane === p}">${p === "sections" ? `Sections (${d.parts.length})` : "Preview"}</button>`).join("");
-  const body = m.ui.pane === "preview"
-    ? previewPane(d)
+  const panes: [Pane, string][] = [
+    ["sections", `Sections (${d.parts.length})`],
+    ["check", d.check ? `Check (${d.check.open})` : "Check"],
+    ["playtest", d.playtest ? `Playtest ${d.playtest.report.pass ? "✓" : "✕"}` : "Playtest"],
+    ["preview", "Preview"],
+    ...(d.proposal ? [["review", "Review ●"] as [Pane, string]] : []),
+  ];
+  const pane = m.ui.pane === "review" && !d.proposal ? "sections" : m.ui.pane;
+  const tabs = panes.map(([p, label]) => `<button class="ws-tab" role="tab" data-ws="pane" data-pane="${p}" aria-selected="${pane === p}">${esc(label)}</button>`).join("");
+  const body = pane === "preview" ? previewPane(d)
+    : pane === "check" ? checkPane(m, v, d)
+    : pane === "playtest" ? playtestPane(m, v, d)
+    : pane === "review" && d.proposal ? reviewPane(d.proposal, busy)
     : `${problems(d)}${d.parts.map((p) => partCard(p, sections.find((s) => s.label === p.label.replace(/ \d+$/, "")), m.ui, busy)).join("")}${addSection(d, sections, busy)}`;
   return `<div class="ws-card ws-draft">
   <div class="ws-row ws-spread"><h3>${esc(baseText(d.base))}</h3><span class="ws-dim">${d.changed ? "changed" : "same as installed"}</span></div>
@@ -187,7 +285,9 @@ function settingsCard(s: SettingsMsg | null): string {
   <summary><b>Settings</b></summary>
   <label class="ws-field">Helper model for Fix and Deepen<select class="ws-input" data-setting="helperConnectionId">${conns}</select></label>
   <label class="ws-toggle"><span>Creative writing</span><small>Fix and Deepen write at temperature 0.8 instead of 0.4.</small><input type="checkbox" data-setting="creative"${s.settings.creative ? " checked" : ""}></label>
-  ${s.canGenerate ? "" : `<p class="ws-warn">Studio may not use a model (no generation permission). Checks, import, export and Install still work.</p>`}
+  <div class="ws-row"><label class="ws-field">Playtest turns<input class="ws-input" type="number" min="5" max="200" data-setting="playtestTurns" value="${s.settings.playtestTurns}"></label><label class="ws-field">Seeds<input class="ws-input" type="number" min="1" max="200" data-setting="playtestSeeds" value="${s.settings.playtestSeeds}"></label></div>
+  <label class="ws-toggle"><span>Show thin spots</span><small>Off: Check lists only gaps and balance (the scores still count thin spots).</small><input type="checkbox" data-setting="showThin"${s.settings.showThin ? " checked" : ""}></label>
+  ${s.canGenerate ? "" : `<p class="ws-warn">Studio may not use a model (no generation permission). Check, Playtest, import, export and Install still work.</p>`}
   <p class="ws-dim">${esc(s.about)}</p>
 </details>`;
 }
@@ -210,7 +310,7 @@ export function renderStudio(m: StudioModel): string {
   }
   const v = m.view;
   if (!v) return `${head}<p class="ws-dim">Loading…</p>`;
-  const busy = v.busy ? `<p class="ws-busy" role="status"><span class="ws-spin"></span>${esc(v.busy)}</p>` : "";
+  const busy = v.busy ? `<p class="ws-busy" role="status"><span class="ws-spin"></span>${esc(v.busy)}${v.cancellable ? ` ${btn("cancel", "Cancel", { ghost: true })}` : ""}</p>` : "";
   const error = v.error ? `<p class="ws-error" role="alert">${esc(v.error)}</p>` : "";
   return [
     head, busy, error,

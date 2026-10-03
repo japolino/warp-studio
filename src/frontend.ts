@@ -8,7 +8,7 @@ import { STUDIO_FORMAT } from "./shared/format.js";
 import type { BackendToFrontend, FrontendToBackend, Settings, StudioView } from "./shared/protocol.js";
 import { warpStatus } from "./shared/warp-state.js";
 import { STYLES } from "./frontend/styles.js";
-import { emptyUi, renderStudio, type RootUi, type SettingsMsg } from "./frontend/view.js";
+import { emptyUi, renderStudio, type Pane, type RootUi, type SettingsMsg } from "./frontend/view.js";
 import { connectWarp } from "./frontend/warp-bridge.js";
 
 const CLEANUP_KEY = "__warpStudioCleanup";
@@ -54,6 +54,8 @@ export function setup(ctx: SpindleFrontendContext) {
   const exported = new Map<string, { name: string; text: string }>();
   let characters: { id: string; name: string }[] | null = null;
   let picked: string | null = null;
+  /** A running Playtest's progress, by character. */
+  const progress = new Map<string, number>();
 
   const warp = connectWarp(() => renderAll());
   cleanups.push(() => warp.stop());
@@ -96,7 +98,8 @@ export function setup(ctx: SpindleFrontendContext) {
     const id = r.target();
     r.el.innerHTML = renderStudio({
       mode: r.mode, characterId: id, view: id ? views.get(id) ?? null : null, settings, warp: status(),
-      exported: id ? exported.get(id) ?? null : null, characters, picked: r.mode === "drawer" && !!picked, ui: r.ui,
+      exported: id ? exported.get(id) ?? null : null, characters, picked: r.mode === "drawer" && !!picked,
+      progress: id ? progress.get(id) ?? null : null, ui: r.ui,
     });
     for (const d of r.el.querySelectorAll<HTMLDetailsElement>("details[data-section]")) {
       const was = r.openSections.get(d.dataset.section!);
@@ -125,6 +128,7 @@ export function setup(ctx: SpindleFrontendContext) {
         const save = t.closest("details")?.querySelector<HTMLButtonElement>('button[data-ws="save"]');
         if (save) save.disabled = !(yamlLabel in r.ui.unsaved);
       } else if (t.hasAttribute?.("data-ws-import")) r.ui.importText = (t as HTMLTextAreaElement).value;
+      else if (t.hasAttribute?.("data-ws-waive-text")) r.ui.waiveText = (t as HTMLInputElement).value;
       return;
     }
     if (e.type === "change") {
@@ -170,7 +174,9 @@ export function setup(ctx: SpindleFrontendContext) {
         return;
       }
       case "export-close": if (id) exported.delete(id); break;
-      case "pane": r.ui.pane = b.dataset.pane === "preview" ? "preview" : "sections"; break;
+      case "pane": r.ui.pane = (["sections", "check", "playtest", "preview", "review"].includes(b.dataset.pane ?? "") ? b.dataset.pane : "sections") as Pane; break;
+      case "waive-open": r.ui.waiving = b.dataset.finding ?? null; r.ui.waiveText = ""; break;
+      case "waive-cancel": r.ui.waiving = null; break;
       default: {
         if (!id) return;
         switch (action) {
@@ -202,6 +208,25 @@ export function setup(ctx: SpindleFrontendContext) {
           case "export-draft": flush(r, id); send({ type: "export", characterId: id, from: "draft" }); return;
           case "export-installed": send({ type: "export", characterId: id, from: "installed" }); return;
           case "install": flush(r, id); send({ type: "install", characterId: id, warp: warp.seen() ?? { present: false, format: null } }); return;
+          case "playtest": flush(r, id); progress.set(id, 0); send({ type: "playtest", characterId: id }); break;
+          case "cancel": send({ type: "cancel", characterId: id }); return;
+          case "fix": flush(r, id); send({ type: "fix", characterId: id, findingId: b.dataset.finding! }); return;
+          case "deepen": flush(r, id); send({ type: "deepen", characterId: id }); return;
+          case "waive": {
+            const reason = r.el.querySelector<HTMLInputElement>("[data-ws-waive-text]")?.value ?? r.ui.waiveText;
+            if (reason.trim().length < 8) { r.el.querySelector<HTMLInputElement>("[data-ws-waive-text]")?.focus(); return; }
+            send({ type: "waive", characterId: id, id: b.dataset.finding!, reason });
+            r.ui.waiving = null; r.ui.waiveText = "";
+            break;
+          }
+          case "unwaive": send({ type: "unwaive", characterId: id, id: b.dataset.finding! }); return;
+          case "review-all": send({ type: "review", characterId: id, accept: "all" }); return;
+          case "review-none": send({ type: "review", characterId: id, accept: "none" }); return;
+          case "review-some": {
+            const picks = [...r.el.querySelectorAll<HTMLInputElement>("[data-ws-pick-section]")].filter((x) => x.checked).map((x) => x.value);
+            send({ type: "review", characterId: id, accept: picks });
+            return;
+          }
           case "discard":
             if (!r.ui.confirmDiscard) { r.ui.confirmDiscard = true; break; }
             r.ui.confirmDiscard = false; r.ui.unsaved = {};
@@ -252,8 +277,22 @@ export function setup(ctx: SpindleFrontendContext) {
       case "characters": characters = m.list; renderAll(); break;
       case "chat": if (!picked) { sync(drawer); render(drawer); } break;
       case "studio": {
+        const before = views.get(m.view.characterId);
         views.set(m.view.characterId, m.view);
-        for (const r of roots) if (r.target() === m.view.characterId) { reconcile(r.ui, m.view); render(r); }
+        if (!m.view.busy) progress.delete(m.view.characterId);
+        const proposed = !before?.draft?.proposal && !!m.view.draft?.proposal;
+        for (const r of roots) if (r.target() === m.view.characterId) {
+          reconcile(r.ui, m.view);
+          // A new Fix or Deepen result opens the review.
+          if (proposed) r.ui.pane = "review";
+          else if (r.ui.pane === "review" && !m.view.draft?.proposal) r.ui.pane = "check";
+          render(r);
+        }
+        break;
+      }
+      case "playtest_progress": {
+        progress.set(m.characterId, m.share);
+        for (const r of roots) if (r.target() === m.characterId) render(r);
         break;
       }
       case "exported": exported.set(m.characterId, { name: m.name, text: m.text }); renderAll(); break;
