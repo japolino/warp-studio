@@ -20,8 +20,7 @@ export { buildHud, buildChoices, stateDigest } from "warp/src/engine/view.js";
 // Lorebook I/O (host-only: these call the global `spindle`, which is Studio's own API object in its backend).
 export { publishRulebook, isInstalledRulebook } from "warp/src/backend/rulebook-install.js";
 
-/** The ruleset format this Studio release is written for. */
-export const STUDIO_FORMAT = 2;
+export { STUDIO_FORMAT } from "./shared/format.js";
 
 /**
  * The ruleset format of the pinned engine. Warp exports `RULESET_FORMAT` from the new format on;

@@ -51,11 +51,16 @@ export function checkParts(parts: Part[]): PartsCheck {
   const { ruleset, issues } = loadRuleset(asRulesetParts(parts));
   const all = ruleset ? [...issues, ...lintRuleset(ruleset)] : issues;
   const labels = new Set(parts.map((p) => p.label));
+  // "warp-ruleset · stats 2, line 3" belongs to "stats 2" when the draft has it; otherwise Warp decides.
+  const placeOf = (where: string) => {
+    const head = where.replace(/^warp-ruleset\s*·\s*/i, "").split(/[›,]/)[0].trim().toLowerCase();
+    return labels.has(head) ? head : partForIssue(where);
+  };
   const checked: CheckedPart[] = parts.map((p) => {
-    const mine = all.filter((i) => partForIssue(i.where) === p.label).map(toIssue);
+    const mine = all.filter((i) => placeOf(i.where) === p.label).map(toIssue);
     return { label: p.label, yaml: p.yaml, issues: mine, status: mine.some((i) => i.level === "error") ? "error" : mine.length ? "warn" : "ok" };
   });
-  const unplaced = all.filter((i) => !labels.has(partForIssue(i.where))).map(toIssue);
+  const unplaced = all.filter((i) => !labels.has(placeOf(i.where))).map(toIssue);
   return {
     ruleset, issues: all, parts: checked, unplaced,
     errors: all.filter((i) => i.level === "error").length,
