@@ -3,7 +3,7 @@
 
 import type { FrontendToBackend, Settings, WarpSeen } from "../shared/protocol.js";
 import { templateInfo } from "../rulebook/workspace.js";
-import { ENGINE_FORMAT, STUDIO_VERSION, WARP_PIN_SHORT } from "../warp.js";
+import { ENGINE_FORMAT, PART_CONTENTS, PART_LABELS, STUDIO_VERSION, WARP_PIN_SHORT } from "../warp.js";
 import { host, logError, send, toast } from "./host.js";
 import { discardDraft, editPart, exportRules, importDraft, installDraft, listCharacters, openStudio, startDraft } from "./session.js";
 import { getSettings, patchSettings } from "./settings.js";
@@ -16,7 +16,8 @@ export async function sendSettings(userId?: string) {
   let canGenerate = true;
   try { connections = (await host().connections.list(userId)).map((c) => ({ id: c.id, name: c.name })); }
   catch { canGenerate = false; /* no generation permission */ }
-  send({ type: "settings", settings, connections, canGenerate, templates: templateInfo(), about: ABOUT }, userId);
+  const sections = PART_LABELS.map((label) => ({ label, contents: PART_CONTENTS[label] }));
+  send({ type: "settings", settings, connections, canGenerate, templates: templateInfo(), sections, about: ABOUT }, userId);
 }
 
 const id = (v: unknown): string | null => (typeof v === "string" && v.trim() && v.length <= 200 ? v : null);

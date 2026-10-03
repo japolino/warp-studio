@@ -96,8 +96,11 @@ export type FrontendToBackend =
 
 export interface TemplateInfo { id: string; name: string; blurb: string }
 
+/** Warp's section labels and what each holds (PART_LABELS / PART_CONTENTS). */
+export interface SectionInfo { label: string; contents: string }
+
 export type BackendToFrontend =
-  | { type: "settings"; settings: Settings; connections: { id: string; name: string }[]; canGenerate: boolean; templates: TemplateInfo[]; about: string }
+  | { type: "settings"; settings: Settings; connections: { id: string; name: string }[]; canGenerate: boolean; templates: TemplateInfo[]; sections: SectionInfo[]; about: string }
   | { type: "characters"; list: { id: string; name: string }[] }
   | { type: "chat"; chatId: string | null }
   | { type: "studio"; view: StudioView }
