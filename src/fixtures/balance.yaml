@@ -1,0 +1,30 @@
+# The numbers: an action at about 5%, a meter that drains in hours, a rule true on turn one,
+# a contest kind the player cannot win against a fair threat.
+name: Balance
+style: adventure
+clock: { start: greeting, fallback: "Day 1 09:00" }
+
+stats:
+  energy: { kind: meter, start: 30, per_hour: -10, narrator: 10, bands: { 0: Spent., 30: Tired., 60: Fresh. } }   # drift
+  body: { kind: attribute, max: 10, start: 0 }
+
+checks:
+  dc: { fair: 19 }                                                # a "fair" threat the player can't beat
+  stats: [body]
+  bonus: 0
+  outcomes: { fail: { energy: -5 } }
+
+actions:
+  leap: { label: Leap the chasm, check: { vs: 30, add: body }, success: { energy: +5 }, fail: { energy: -5 } }   # odds
+
+triggers:
+  tired: { when: "energy < 50", do: { energy: -1, hint: "{{user}} is tired." } }   # trig
+
+conflict:
+  kinds:
+    duel:                                                         # contest-odds
+      label: Duel
+      stats: [body]
+      cost: { fail: { energy: -5 } }
+      won: { energy: +5 }
+      lost: { energy: -10 }

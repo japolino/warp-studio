@@ -1,0 +1,20 @@
+# A Story ruleset that works but feels flat: People and Growth "thin" findings.
+name: Thin story
+style: story
+clock: { start: "Day 1 18:00" }                                   # scene-clock-fixed
+
+relationships:
+  stats:
+    affection: { start: 10, narrator: 25, bands: { 0: Cold, 25: Warm, 50: Fond } }   # rel-no-voice, rel-no-say, rel-no-cap
+  people:
+    mira: { name: Mira }                                          # people-no-secret
+
+live_choices:
+  taper: false                                                    # taper-off
+  tags:
+    tender: { desc: "Something warm", per_person: true, effects: { rel: { target: { affection: +3 } } } }
+    space: { desc: "Giving room", effects: { hint: "A quiet moment." } }
+    onward: { desc: "Moving on", effects: { time: 30 } }
+
+goals:
+  from_story: false                                               # goals-none

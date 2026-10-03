@@ -1,0 +1,59 @@
+# One declared thing per "gap" finding of Studio's Check (new ruleset format).
+name: Dead parts
+style: adventure
+clock: { start: greeting, fallback: "Day 1 09:00" }
+inventory: { open: false }
+
+stats:
+  health: { kind: meter, narrator: 10, bands: { 0: Down., 50: Hurt., 80: Fine. } }
+  idle: { kind: meter, bands: { 0: Low., 50: High. } }           # stat-static, stat-unread
+  gold: { kind: money, start: 10, narrator: 0 }                  # money-no-income, money-no-spending
+  body: { kind: attribute, max: 10, start: 3 }
+  grit: { kind: attribute, max: 10, start: 3 }                   # skill-unused
+
+checks:
+  stats: [body]
+  outcomes: { fail: { health: -5 } }
+
+items:
+  pebble: { name: Pebble }                                       # item-dead
+  key: { name: Key, use: { label: Unlock the door, effects: { flags: { door_open: true } } } }   # item-unobtainable
+
+conditions:
+  cursed: { label: Cursed }                                      # cond-never
+
+flags:
+  door_open: { start: false }                                    # set by the key, read by nothing: flag-unread
+  lever: { start: false }                                        # read by a trigger, set by nothing: flag-unset
+
+relationships:
+  stats:
+    trust: { start: 10, narrator: 0, bands: { 0: Wary } }        # rel-no-bands, rel-frozen
+  people:
+    mira: { name: Mira }
+
+secrets:
+  past:                                                          # secret-stuck
+    person: mira
+    stages:
+      - { when: "flag('told')", text: "Mira was there that night." }
+
+triggers:
+  lever_pull: { when: "flag('lever')", do: { health: +5 } }
+
+live_choices:
+  tags:
+    shrug: { desc: "Shrug it off" }                              # tag-dead, tags-few
+
+actions:
+  stare: { label: Stare at the wall }                            # action-dead
+
+conflict:
+  from_story: false                                              # contest-never
+  kinds:
+    fight: { label: Fight, stats: [body] }
+
+goals:
+  from_story: false
+  list:
+    escape: { text: "Get out of here" }                          # goal-no-stakes (Warp's lint: no done_when or judge)
