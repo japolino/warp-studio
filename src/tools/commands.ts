@@ -1,7 +1,7 @@
 // The warp-rulebook commands. `run` takes its I/O as arguments, so the tests run
 // it in process; cli.ts wires it to Node.
 
-import { checkReport, checkText, guideMarkdown, guideText, previewText, simulateText, templateList, templateText, VERSION_LINE, type GuideSection } from "./rulebook-tools.js";
+import { checkReport, checkText, guideMarkdown, guideText, previewText, simulate, templateList, templateText, VERSION_LINE, type GuideSection } from "./rulebook-tools.js";
 
 export interface CommandIO {
   out(text: string): void;
@@ -16,9 +16,11 @@ export const USAGE = `warp-rulebook — write Warp rulesets with any tool
                                   The authoring guide (workflow, format reference, design guide)
   templates                       The starting templates
   template <id>                   One template as a ruleset file
-  check <file...> [--json]        Load and lint it the way Warp does (exit 1 on errors)
-  simulate <file...> [--turns n] [--seeds n] [--policy mixed|greedy|always:<tag>] [--json]
-                                  Playtest the whole loop with Warp's loop simulator (exit 1 if a gate fails)
+  check <file...> [--json]        Load and lint it the way Warp does, plus coverage of the 6 core systems
+                                  with findings and fixes (exit 1 on errors)
+  simulate <file...> [--turns n] [--seeds n] [--json]
+                                  Playtest the whole loop with Warp's loop simulator: its gates, tag share,
+                                  odds and the contest table (exit 1 if a gate fails)
   preview <file...>               The status panel, the actions and the narrator's view at the start
   mcp                             All of this as an MCP server (stdio)
   --version                       Studio version, ruleset format and engine pin
@@ -73,8 +75,8 @@ export function run(argv: string[], io: CommandIO): number {
         return rep.ok ? 0 : 1;
       }
       case "simulate": {
-        const res = simulateText(read(files(args)));
-        io.out(res.text);
+        const res = simulate(read(files(args)), { turns: Number(flag(args, "--turns")) || undefined, seeds: Number(flag(args, "--seeds")) || undefined });
+        io.out(args.includes("--json") && res.report ? JSON.stringify(res.report, null, 2) : res.text);
         return res.ok ? 0 : 1;
       }
       case "preview": io.out(previewText(read(files(args)))); return 0;

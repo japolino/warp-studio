@@ -25,10 +25,12 @@ export function previewOf(r: Ruleset): PreviewView {
   else if (hud.money) panel.push(`Money: ${hud.money}`);
   for (const b of hud.bars) panel.push(`${b.label}: ${b.text ? `${b.text} (${b.display})` : b.display}`);
   if (hud.skills.length) panel.push(`Skills: ${hud.skills.map((x) => `${x.label} ${x.grade ?? x.text ?? x.display}`).join(", ")}`);
+  if (hud.you.appearance || hud.you.outfit) panel.push(`You: ${[hud.you.appearance, hud.you.outfit && `wearing ${hud.you.outfit}`].filter(Boolean).join("; ")}`);
   for (const p of hud.people) {
     const bands = p.stats.map((x) => `${x.label} ${x.text ?? x.display}`).join(", ");
     panel.push(`${p.name}${p.present ? " (here)" : ""}${bands ? `: ${bands}` : ""}`);
   }
+  for (const g of hud.goals) panel.push(`Goal (${g.status}): ${g.text}${g.from ? ` — for ${g.from}` : ""}${g.stakes ? ` · at stake: ${g.stakes}` : ""}`);
   if (hud.items.length) panel.push(`Carrying: ${hud.items.map((i) => `${i.name}${i.count > 1 ? ` ×${i.count}` : ""}${i.use ? ` [${i.use.label}]` : ""}${i.bonus ? ` (${i.bonus})` : ""}`).join(", ")}`);
   if (hud.conditions.length) panel.push(`Conditions: ${hud.conditions.map((c) => c.label).join(", ")}`);
   const choices = buildChoices(r, s, { lines: [], veils: [] }).map((c) =>
@@ -43,9 +45,13 @@ export function countsOf(r: Ruleset): Record<string, number> {
     stats: r.statOrder.length,
     "relationship stats": r.relStatOrder.length,
     people: Object.keys(r.people).length,
+    secrets: Object.keys(r.secrets).length,
     items: Object.keys(r.items).length,
     conditions: Object.keys(r.conditions).length,
+    "live-choice tags": Object.keys(r.liveChoices.tags).length,
     actions: Object.keys(r.actions).length,
+    "contest kinds": r.style === "story" ? 0 : Object.keys(r.conflict.kinds).length,
+    goals: Object.keys(r.goals.list).length,
     triggers: r.triggers.length,
   };
 }

@@ -3,7 +3,7 @@
 // process. The tool names are the same as the old Warp server's, so existing
 // user configs keep working.
 
-import { checkReport, checkText, guideText, previewText, simulateText, templateList, templateText, type GuideSection } from "./rulebook-tools.js";
+import { checkReport, checkText, guideText, previewText, simulate, templateList, templateText, type GuideSection } from "./rulebook-tools.js";
 import { STUDIO_VERSION } from "../warp.js";
 
 export interface ToolIO { readFile(path: string): string }
@@ -30,17 +30,16 @@ export const TOOLS = [
   },
   {
     name: "warp_check",
-    description: "Check a ruleset the way Warp loads it: errors, lint warnings and parts Warp no longer runs. Run it after every change until it is clean.",
+    description: "Check a ruleset: Warp's load errors and lint, parts Warp no longer runs, and Studio's coverage of the 6 core systems (scene, people, checks, choices, conflict, growth) with findings (gap / thin / balance) and how to fix each. Run it after every change.",
     inputSchema: { type: "object", properties: SOURCE },
   },
   {
     name: "warp_simulate",
-    description: "Playtest the whole loop with Warp's loop simulator: N turns × M seeds with a scripted player; Warp's quality gates pass or fail.",
+    description: "Playtest the whole loop with Warp's loop simulator: N turns × M seeds for each scripted player (mixed, dialogue-heavy, greedy, always the same tag), with a fake narrator. Returns Warp's quality gates (pass/fail), the greedy player's tag share, the odds of each checked tag and the contest table. Iterate until every gate passes.",
     inputSchema: { type: "object", properties: {
       ...SOURCE,
       turns: { type: "number", description: "Turns per run (default 50)." },
-      seeds: { type: "number", description: "Runs (default 50)." },
-      policy: { type: "string", description: "mixed (default), greedy, or always:<tag>." },
+      seeds: { type: "number", description: "Runs per player (default 50)." },
     } },
   },
   {
@@ -73,8 +72,9 @@ export function callTool(name: string, a: Record<string, unknown>, io: ToolIO): 
       }
       case "warp_check": return { text: checkText(checkReport(sourceOf(a, io))) };
       case "warp_simulate": {
-        const res = simulateText(sourceOf(a, io));
-        return res.ok ? { text: res.text } : { text: res.text, isError: true };
+        const res = simulate(sourceOf(a, io), { turns: Number(a.turns) || undefined, seeds: Number(a.seeds) || undefined });
+        // A failed gate is a result to work on, not a tool error; a ruleset that doesn't run is.
+        return res.report ? { text: res.text } : { text: res.text, isError: true };
       }
       case "warp_preview": return { text: previewText(sourceOf(a, io)) };
     }

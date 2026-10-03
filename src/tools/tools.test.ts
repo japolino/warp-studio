@@ -51,6 +51,32 @@ describe("the checker", () => {
     expect(rep.sections.length).toBeGreaterThan(1);
   });
 
+  test("coverage by core system, with findings and fixes", () => {
+    const io = memIO({ "dead.yaml": readFileSync(fixturePath("dead-parts.yaml"), "utf8") });
+    expect(run(["check", "dead.yaml"], io)).toBe(0);
+    const text = io.stdout.join("\n");
+    expect(text).toMatch(/◆ COVERAGE BY CORE SYSTEM \(adventure\): Scene \d+ · People \d+ · Checks \d+ · Choices \d+ · Conflict \d+ · Growth \d+/);
+    expect(text).toContain("- [gap] item-dead:pebble (world): Pebble does nothing");
+    expect(text).toContain("fix: Give it a `use:`");
+    expect(run(["check", "dead.yaml", "--json"], io)).toBe(0);
+    const rep = JSON.parse(io.stdout.at(-1)!);
+    expect(rep.coverage.systems).toHaveLength(6);
+    expect(rep.coverage.findings.some((f: { id: string }) => f.id === "item-dead:pebble")).toBe(true);
+  });
+
+  test("simulate runs Warp's loop simulator: gates, exit 1 when one fails, --json", () => {
+    const io = memIO({ "t.yaml": templateText(TEMPLATES[0].id)!, "bad.yaml": "stats: [oops" });
+    const code = run(["simulate", "t.yaml", "--turns", "5", "--seeds", "2"], io);
+    const text = io.stdout.at(-1)!;
+    expect(text).toContain("WARP PLAYTEST — 5 turns × 2 seeds");
+    expect(text).toContain("GATES (Warp's quality bar)");
+    expect(code).toBe(text.includes("✓ Every gate passes.") ? 0 : 1);
+    expect(run(["simulate", "t.yaml", "--turns", "5", "--seeds", "1", "--json"], io)).toBe(code);
+    expect(JSON.parse(io.stdout.at(-1)!).gates.length).toBeGreaterThan(3);
+    expect(run(["simulate", "bad.yaml"], io)).toBe(1);
+    expect(io.stdout.at(-1)).toContain("fix the errors first");
+  });
+
   test("preview reads the same file", () => {
     const p = previewText([templateText(TEMPLATES[0].id)!]);
     expect(p).toContain("STATUS PANEL AT THE START");
@@ -107,6 +133,9 @@ describe("the MCP server", () => {
   });
 
   test("errors come back as tool errors, unknown methods as JSON-RPC errors, notifications get no answer", () => {
+    const sim = handleRpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "warp_simulate", arguments: { path: "t.yaml", turns: 5, seeds: 1 } } }, io)!;
+    expect((sim.result as { content: { text: string }[]; isError?: boolean }).content[0].text).toContain("GATES (Warp's quality bar)");
+    expect((sim.result as { isError?: boolean }).isError).toBeUndefined();
     const bad = handleRpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "warp_check", arguments: {} } }, io)!;
     expect((bad.result as { isError: boolean }).isError).toBe(true);
     expect(handleRpc({ jsonrpc: "2.0", id: 5, method: "nope" }, io)!.error).toEqual({ code: -32601, message: "Method not found: nope" });

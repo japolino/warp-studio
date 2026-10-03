@@ -44,8 +44,9 @@ The engine decides outcomes; the narrator model only writes them. A good ruleset
 7. Hand the file over. In Lumiverse: Warp Studio → Import a rulebook → check it → Install. It lands in the
    character's "warp-ruleset" lorebook, one entry per section.
 
-Rules of thumb: few parts that all matter. 2–3 relationship stats, each band with words the player sees.
-3–4 meters with bands. A handful of live-choice tags, at least one without a check. Goals that come from the story.
+Rules of thumb: few parts that all matter. 2–3 relationship stats with a say and a voice on every band. 3–4 meters
+with bands. 4–8 live-choice tags, at least one without a check. Conflict kinds only with `style: adventure`. Goals
+that come from the story, plus 1–3 authored ones with judge and stakes.
 snake_case ids; meters 0–100; quote formulas that contain commas; refer to the player as {{user}}; in-world text in
 the card's voice. Never anything sexual involving anyone under 18: Warp refuses a ruleset that declares minors
 together with sexual tags.

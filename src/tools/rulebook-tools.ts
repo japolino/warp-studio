@@ -2,7 +2,9 @@
 // the guide, the starting templates, and the same checks Warp Studio runs in
 // Lumiverse. Shared by the CLI, the MCP server and the tests. No I/O here.
 
+import { checkView, scoreLine, type CheckView } from "../audit/report.js";
 import { checkParts, fromTemplate, fromText, legacyBanner, templateInfo, toText, type Part } from "../rulebook/workspace.js";
+import { playtestNow, playtestText, type PlaytestReport } from "../sim/playtest.js";
 import { countsOf, previewOf, previewText as previewViewText } from "../rulebook/preview.js";
 import { DESIGN_GUIDE, ENGINE_FORMAT, PART_CONTENTS, PART_LABELS, REFERENCE, STUDIO_VERSION, WARP_PIN_SHORT, type Issue, type Ruleset } from "../warp.js";
 
@@ -33,8 +35,9 @@ The engine decides outcomes; the narrator model only writes them. A good ruleset
 7. Hand the file over. In Lumiverse: Warp Studio → Import a rulebook → check it → Install. It lands in the
    character's "warp-ruleset" lorebook, one entry per section.
 
-Rules of thumb: few parts that all matter. 2–3 relationship stats, each band with words the player sees.
-3–4 meters with bands. A handful of live-choice tags, at least one without a check. Goals that come from the story.
+Rules of thumb: few parts that all matter. 2–3 relationship stats with a say and a voice on every band. 3–4 meters
+with bands. 4–8 live-choice tags, at least one without a check. Conflict kinds only with \`style: adventure\`. Goals
+that come from the story, plus 1–3 authored ones with judge and stakes.
 snake_case ids; meters 0–100; quote formulas that contain commas; refer to the player as {{user}}; in-world text in
 the card's voice. Never anything sexual involving anyone under 18: Warp refuses a ruleset that declares minors
 together with sexual tags.`;
@@ -147,19 +150,23 @@ export interface CheckReport {
   /** Removed top-level keys (ignored by Warp). */
   legacy: string[];
   contents: Record<string, number>;
+  /** Coverage per core system and the findings (null while it has errors). */
+  coverage: CheckView | null;
 }
 
 export function checkReport(texts: string[]): CheckReport {
   const { parts, ruleset: r, issues, legacy } = loadText(texts);
   const errors = issues.filter((i) => i.level === "error");
+  const ok = !!r && !errors.length;
   return {
-    ok: !!r && !errors.length,
+    ok,
     name: r?.name ?? null,
     sections: parts.map((p) => p.label),
     errors,
     warnings: issues.filter((i) => i.level !== "error"),
     legacy,
     contents: r ? countsOf(r) : {},
+    coverage: ok ? checkView(r!) : null,
   };
 }
 
@@ -182,9 +189,23 @@ export function checkText(rep: CheckReport): string {
     for (const i of rep.warnings) out.push(`  - ${i.where}: ${i.message}`);
     out.push("");
   }
-  out.push(rep.ok
-    ? rep.warnings.length ? "Runs. Work through the warnings above." : "✓ Clean: it runs and lints clean. Preview it, then import it in Warp Studio."
-    : "✕ Doesn't run yet: fix the errors first.");
+  const cov = rep.coverage;
+  if (cov) {
+    out.push(`◆ COVERAGE BY CORE SYSTEM (${cov.style}): ${scoreLine(cov.systems)}`);
+    for (const sys of cov.systems) {
+      const mine = cov.findings.filter((f) => f.system === sys.id);
+      if (!mine.length) continue;
+      out.push(`  ${sys.label}:`);
+      for (const f of mine) out.push(`  - [${f.severity}] ${f.id} (${f.part}): ${f.text}\n      fix: ${f.fix}`);
+    }
+    out.push("");
+  }
+  const gaps = cov?.findings.filter((f) => f.severity === "gap").length ?? 0;
+  out.push(!rep.ok
+    ? "✕ Doesn't run yet: fix the errors first."
+    : rep.warnings.length || gaps
+      ? "Runs. Work through the warnings, then the gaps system by system, then the thin spots you care about. Then simulate."
+      : "✓ Clean: it runs, lints clean and has no gaps. Simulate it, preview it, then import it in Warp Studio.");
   return out.join("\n");
 }
 
@@ -195,10 +216,14 @@ export function previewText(texts: string[]): string {
   return previewViewText(previewOf(r));
 }
 
-/** The whole-loop playtest. Needs Warp's loop simulator (stage 2 of Studio). */
-export function simulateText(texts: string[]): { text: string; ok: boolean } {
+export interface SimulateOptions { turns?: number; seeds?: number }
+
+/** Warp's whole-loop simulator on the file: its gates, tag share, odds and the contest table. `ok` = every gate passes. */
+export function simulate(texts: string[], o: SimulateOptions = {}): { ok: boolean; text: string; report: PlaytestReport | null } {
   const { ruleset: r, issues } = loadText(texts);
-  if (!r) return { ok: false, text: `The ruleset doesn't load:\n${issues.filter((i) => i.level === "error").map((i) => `  - ${i.where}: ${i.message}`).join("\n")}` };
-  // TODO(stage 2): run Warp's loop simulator (runLoopSim) and print its gates.
-  return { ok: false, text: `Playtest needs Warp's loop simulator, which ${WARP_PIN_SHORT} does not have yet.` };
+  const errors = issues.filter((i) => i.level === "error");
+  if (!r || errors.length) return { ok: false, report: null, text: `The ruleset doesn't run yet; fix the errors first (\`check\`):\n${errors.map((i) => `  - ${i.where}: ${i.message}`).join("\n")}` };
+  const clamp = (v: number | undefined, def: number) => Math.max(1, Math.min(500, Math.round(Number.isFinite(v) ? v! : def)));
+  const report = playtestNow(r, { turns: clamp(o.turns, 50), seeds: clamp(o.seeds, 50) });
+  return { ok: report.pass, report, text: playtestText(report) };
 }
