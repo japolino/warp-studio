@@ -45,7 +45,7 @@ var package_default = {
     "js-yaml": "^4.1.0",
     "lumiverse-spindle-types": "0.6.36",
     typescript: "^5.9.0",
-    warp: "github:japolino/warp#48aeea5ffd6322a0924191869f226389f74dc50b"
+    warp: "github:japolino/warp#20840a32a7cb6f6388c2e8e704e04ba8778442f2"
   }
 };
 
@@ -7953,6 +7953,20 @@ function lintRuleset(r) {
       warn(where, `${m}, so it reads as 0 / false`);
     return rolled;
   };
+  const followsClock = (src, name) => {
+    const at = (v) => {
+      const base = makeEnv(r, { ...s, [name]: v });
+      const env = { lookup: base.lookup, call: (fn, a) => fn === "roll" ? 1 : base.call?.(fn, a) };
+      try {
+        return evalNumber(src, env, Number.NaN);
+      } catch {
+        return Number.NaN;
+      }
+    };
+    const lo = name === "turn" ? 20000 : 200000000, hi = lo * 2;
+    const a = at(lo), b = at(hi);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(b - a) >= (hi - lo) / 2;
+  };
   const checkEffect = (e, where, extra = {}) => {
     for (const [id, v] of Object.entries(e.stats)) {
       if (!r.stats[id])
@@ -7971,7 +7985,7 @@ function lintRuleset(r) {
         warn(where, `sets "${id}", which isn't a stat${suggest(id, r.statOrder)}`);
       check(v, `${where} › set › ${id}`, extra);
       const def = r.stats[id];
-      const stamp = identifiers(String(v)).find((n) => n === "turn" || n === "minutes");
+      const stamp = ["turn", "minutes"].find((n) => identifiers(String(v)).includes(n) && followsClock(String(v), n));
       const room = stamp === "minutes" ? 1e7 : 1e4;
       if (def && stamp && !def.maxExpr && def.max < room)
         warn(`${where} › set › ${id}`, `stores ${stamp}, but ${id} stops at ${def.max} (max), so it sticks there after ${stamp} ${def.max}. Give it max: ${room === 1e4 ? 1e5 : 1e8}`);

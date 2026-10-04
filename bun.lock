@@ -10,7 +10,7 @@
         "js-yaml": "^4.1.0",
         "lumiverse-spindle-types": "0.6.36",
         "typescript": "^5.9.0",
-        "warp": "github:japolino/warp#48aeea5ffd6322a0924191869f226389f74dc50b",
+        "warp": "github:japolino/warp#20840a32a7cb6f6388c2e8e704e04ba8778442f2",
       },
     },
   },
@@ -31,6 +31,6 @@
 
     "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
-    "warp": ["warp@github:japolino/warp#48aeea5", { "dependencies": { "js-yaml": "^4.1.0" } }, "japolino-warp-48aeea5", "sha512-HpNaoBdTanI1le+4PRjFt5ZuxlnMZu0LC5+xzSymqaTj+fEVBt6W+B/U7PV8Kd09A/DG/nBNxnwzvoiFFB/oRw=="],
+    "warp": ["warp@github:japolino/warp#20840a3", { "dependencies": { "js-yaml": "^4.1.0" } }, "japolino-warp-20840a3", "sha512-3xB3yus90Al0/Xz+iW4hK408eHKfs74eJ8d35Mat6zeAgglBFCK+5itxaqKWTnusG8LgESts2fFTPVvvBASelA=="],
   }
 }

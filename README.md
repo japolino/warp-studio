@@ -95,7 +95,7 @@ About line in Studio's settings show it.
 
 | Warp Studio | Ruleset format | Warp engine |
 |---|---|---|
-| 0.1.0 | 2 | `warp#48aeea5` (Warp 0.2.0) |
+| 0.1.0 | 2 | `warp#20840a3` (Warp 0.2.0) |
 
 A test fails when Warp's ruleset format is not the one Studio is written for. At run time, Studio asks the Warp in the
 same window which format it reads (`rulesetFormat` in Warp's `warp-state-v1` event) and refuses to install for an
